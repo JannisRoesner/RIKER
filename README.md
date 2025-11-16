@@ -1,5 +1,4 @@
-# RIKER – Registrierkassen-Interface für Karnevalssitzungen
-mit Echtzeit-Rückmeldungen
+# RIKER – Registrierkassen-Interface für Karnevalssitzungen mit Echtzeit-Rückmeldungen
 
 Eine schlanke Web‑Kasse für Sitzungen: Bestellungen aufnehmen, Küche koordinieren, selektiv bezahlen und Tages‑Reports — alles im Browser, optimiert für Touch.
 
