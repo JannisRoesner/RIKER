@@ -1,0 +1,8 @@
+node_modules
+dist
+server/node_modules
+client/node_modules
+data
+prints
+.git
+.env

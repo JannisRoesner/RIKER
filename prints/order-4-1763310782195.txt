@@ -1,0 +1,6 @@
+Bestellung #4
+Tisch: 4
+---
+4 x Rotwein (5 je) 
+---
+Summe: 20.00€
