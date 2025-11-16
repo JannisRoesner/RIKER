@@ -6,9 +6,9 @@ Wenn hier keine KI‑Agenten eingesetzt werden, kann diese Datei gefahrlos entfe
 ## Projektstand (Kurzüberblick)
 - Backend: `server/` (Node/Express, SQLite). Startet auf Port 3000 und liefert das gebaute Frontend aus `server/public` aus.
 - Frontend: `client/` (React + Vite). Build wird im Container erzeugt und landet unter `server/public`.
-- Daten: SQLite unter `data/db.sqlite` (wird automatisch erstellt).
-- Druck: Text-Bons in `prints/` mit Schema `order-<id>-<ts>.txt`.
-- Container: Ein `Dockerfile` baut Frontend und startet den Server. Volumes für `data/` und `prints/` werden empfohlen.
+- Daten: SQLite unter `data/db.sqlite` (wird automatisch erstellt); Named Volume `riker-data`.
+- Druck: Text-Bons in `prints/` mit Schema `order-<id>-<ts>.txt`; Named Volume `riker-prints`.
+- Container: Ein `Dockerfile` baut Frontend und startet den Server. Named Volumes für persistente Daten.
 
 Siehe detaillierte Nutzung in `README.md`.
 
@@ -31,17 +31,14 @@ Don’t (vermeiden)
 - Bei API‑Änderungen: mindestens ein kurzer Smoke‑Test (lokal) und README‑Erweiterung.
 
 ## Entwicklungs‑Hinweise (Kurzform)
-- Docker (PowerShell):
-	```powershell
-	docker build -t riker:local .
-	docker run --name riker_local --rm -d -p 3000:3000 -v ${PWD}/data:/app/data -v ${PWD}/prints:/app/prints riker:local
-	```
+- Docker Compose (empfohlen, nutzt Named Volumes):
+  ```powershell
+  docker compose up -d --build
+  ```
 - Optionales Seeding:
-	```powershell
-		node server/scripts/init_db.js
-		# oder im Container
-		docker exec -it riker node scripts/init_db.js
-	```
+  ```powershell
+  docker exec -it riker node scripts/init_db.js
+  ```
 
 ## Akzeptanzkriterien für typische Aufgaben
 - „Feature X in Admin hinzufügen“: UI‑Button/Flow vorhanden, API‑Route dokumentiert, Fehlpfade abgefangen, Build/Run getestet.

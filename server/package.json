@@ -2,7 +2,7 @@
   "name": "riker-server",
   "version": "0.1.0",
   "main": "index.js",
-  "license": "MIT",
+  "license": "AGPL-3.0",
   "scripts": {
     "start": "node index.js",
     "init-db": "node scripts/init_db.js"

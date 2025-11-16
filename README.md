@@ -1,5 +1,5 @@
 # RIKER – Registrierkassen-Interface für Karnevalssitzungen mit Echtzeit-Rückmeldungen
-
+k
 Eine schlanke Web‑Kasse für Sitzungen: Bestellungen aufnehmen, Küche koordinieren, selektiv bezahlen und Tages‑Reports — alles im Browser, optimiert für Touch.
 
 ## 🎯 Features
@@ -32,32 +32,40 @@ Eine schlanke Web‑Kasse für Sitzungen: Bestellungen aufnehmen, Küche koordin
 - Persistenz über SQLite: `data/db.sqlite` (wird bei Start/Seed erstellt)
 - DB‑Schema: `server/schema.sql` (Migrationen minimal gehalten)
 - Bon‑Ablage: `prints/` (Dateien werden neu angelegt, nicht überschrieben)
+- Docker: Named Volumes `riker-data` und `riker-prints` (persistent, portabel)
 
 ## 🚀 Installation & Betrieb
 
 ### Docker (empfohlen)
 
-Mit Compose (inkl. Volumes und Healthcheck):
+Mit Compose (nutzt Named Volumes für persistente Daten):
 ```powershell
 docker compose up -d --build
-```
-
-Alternativ Einzel‑Container:
-```powershell
-docker build -t riker:local .
-docker run --name riker_local --rm -d -p 3000:3000 -v ${PWD}/data:/app/data -v ${PWD}/prints:/app/prints riker:local
 ```
 
 Anwendung öffnen: http://localhost:3000
 
 Optionale Initialdaten (Beispielmenü/Tische):
 ```powershell
-# lokal (ohne Container)
-node server/scripts/init_db.js
-
-# oder im laufenden Container
+# im laufenden Container
 docker exec -it riker node scripts/init_db.js
 ```
+
+**Backup & Restore (Named Volumes):**
+```powershell
+# Backup erstellen
+docker run --rm -v riker-data:/data -v ${PWD}:/backup alpine tar czf /backup/riker-data-backup.tar.gz -C /data .
+docker run --rm -v riker-prints:/prints -v ${PWD}:/backup alpine tar czf /backup/riker-prints-backup.tar.gz -C /prints .
+
+# Restore
+docker run --rm -v riker-data:/data -v ${PWD}:/backup alpine tar xzf /backup/riker-data-backup.tar.gz -C /data
+docker run --rm -v riker-prints:/prints -v ${PWD}:/backup alpine tar xzf /backup/riker-prints-backup.tar.gz -C /prints
+```
+
+**Unraid-Deployment:**
+- Image auf Docker Hub pushen oder lokal laden: `docker save riker:local -o riker.tar`
+- In Unraid Docker GUI: Image `riker:local`, Port 3000:3000, Named Volumes werden automatisch verwaltet
+- Alternativ: Docker Compose Manager Plugin nutzen
 
 ### Lokale Entwicklung (ohne Docker)
 
