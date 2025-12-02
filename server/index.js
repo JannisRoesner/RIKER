@@ -344,16 +344,23 @@ async function start() {
   app.get('/api/admin/reports/summary', async (req, res) => {
     try {
       const date = (req.query.date || '').trim();
-      const dateExpr = date ? `DATE(?)` : `DATE('now')`;
-      const params = date ? [date] : [];
-      const row = await db.get(
-        `SELECT COALESCE(SUM(oi.qty * i.price), 0) as revenuePaid
+      let query, params;
+      if (date) {
+        query = `SELECT COALESCE(SUM(oi.qty * i.price), 0) as revenuePaid
          FROM order_items oi
          JOIN orders o ON oi.order_id = o.id
          JOIN items i ON oi.item_id = i.id
-         WHERE COALESCE(oi.paid,0) = 1 AND DATE(o.created_at) = ${dateExpr}`,
-        ...params
-      );
+         WHERE COALESCE(oi.paid,0) = 1 AND DATE(o.created_at) = DATE(?)`;
+        params = [date];
+      } else {
+        query = `SELECT COALESCE(SUM(oi.qty * i.price), 0) as revenuePaid
+         FROM order_items oi
+         JOIN orders o ON oi.order_id = o.id
+         JOIN items i ON oi.item_id = i.id
+         WHERE COALESCE(oi.paid,0) = 1`;
+        params = [];
+      }
+      const row = await db.get(query, ...params);
       res.json({ date: date || null, revenuePaid: row?.revenuePaid || 0 });
     } catch (err) {
       console.error('report summary error', err);
@@ -361,16 +368,46 @@ async function start() {
     }
   });
 
-  // Orders for a date
+  // Summary revenue including unpaid items (all items total)
+  app.get('/api/admin/reports/summary-all', async (req, res) => {
+    try {
+      const date = (req.query.date || '').trim();
+      let query, params;
+      if (date) {
+        query = `SELECT COALESCE(SUM(oi.qty * i.price), 0) as revenueAll
+         FROM order_items oi
+         JOIN orders o ON oi.order_id = o.id
+         JOIN items i ON oi.item_id = i.id
+         WHERE DATE(o.created_at) = DATE(?)`;
+        params = [date];
+      } else {
+        query = `SELECT COALESCE(SUM(oi.qty * i.price), 0) as revenueAll
+         FROM order_items oi
+         JOIN orders o ON oi.order_id = o.id
+         JOIN items i ON oi.item_id = i.id`;
+        params = [];
+      }
+      const row = await db.get(query, ...params);
+      res.json({ date: date || null, revenueAll: row?.revenueAll || 0 });
+    } catch (err) {
+      console.error('report summary-all error', err);
+      res.status(500).json({ error: 'internal' });
+    }
+  });
+
+  // Orders for a date (or all if no date)
   app.get('/api/admin/reports/orders', async (req, res) => {
     try {
       const date = (req.query.date || '').trim();
-      const dateExpr = date ? `DATE(?)` : `DATE('now')`;
-      const params = date ? [date] : [];
-      const rows = await db.all(
-        `SELECT * FROM orders WHERE DATE(created_at) = ${dateExpr} ORDER BY created_at DESC`,
-        ...params
-      );
+      let query, params;
+      if (date) {
+        query = `SELECT * FROM orders WHERE DATE(created_at) = DATE(?) ORDER BY created_at DESC`;
+        params = [date];
+      } else {
+        query = `SELECT * FROM orders ORDER BY created_at DESC`;
+        params = [];
+      }
+      const rows = await db.all(query, ...params);
       res.json(rows);
     } catch (err) {
       console.error('report orders error', err);
@@ -378,25 +415,36 @@ async function start() {
     }
   });
 
-  // Per-item sales for a date: total sold qty and paid revenue
+  // Per-item sales for a date (or all if no date): total sold qty and paid revenue
   app.get('/api/admin/reports/items', async (req, res) => {
     try {
       const date = (req.query.date || '').trim();
-      const dateExpr = date ? `DATE(?)` : `DATE('now')`;
-      const params = date ? [date] : [];
-      const rows = await db.all(
-        `SELECT i.id as item_id, i.name,
+      let query, params;
+      if (date) {
+        query = `SELECT i.id as item_id, i.name,
                 COALESCE(SUM(oi.qty),0) as soldQty,
                 COALESCE(SUM(CASE WHEN COALESCE(oi.paid,0)=1 THEN oi.qty ELSE 0 END),0) as paidQty,
                 COALESCE(SUM(CASE WHEN COALESCE(oi.paid,0)=1 THEN (oi.qty * i.price) ELSE 0 END),0) as revenuePaid
          FROM order_items oi
          JOIN orders o ON oi.order_id = o.id
          JOIN items i ON i.id = oi.item_id
-         WHERE DATE(o.created_at) = ${dateExpr}
+         WHERE DATE(o.created_at) = DATE(?)
          GROUP BY i.id, i.name
-         ORDER BY soldQty DESC`,
-        ...params
-      );
+         ORDER BY soldQty DESC`;
+        params = [date];
+      } else {
+        query = `SELECT i.id as item_id, i.name,
+                COALESCE(SUM(oi.qty),0) as soldQty,
+                COALESCE(SUM(CASE WHEN COALESCE(oi.paid,0)=1 THEN oi.qty ELSE 0 END),0) as paidQty,
+                COALESCE(SUM(CASE WHEN COALESCE(oi.paid,0)=1 THEN (oi.qty * i.price) ELSE 0 END),0) as revenuePaid
+         FROM order_items oi
+         JOIN orders o ON oi.order_id = o.id
+         JOIN items i ON i.id = oi.item_id
+         GROUP BY i.id, i.name
+         ORDER BY soldQty DESC`;
+        params = [];
+      }
+      const rows = await db.all(query, ...params);
       res.json(rows);
     } catch (err) {
       console.error('report items error', err);

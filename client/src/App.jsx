@@ -81,7 +81,7 @@ function TableSelectControl({ tables, value, onChange }) {
   )
 }
 
-function MenuGrid({ menu, onSelectItem }) {
+function MenuGrid({ menu, onAddItem }) {
   return (
     <div className="menu-grid">
       {menu.map(cat => (
@@ -89,7 +89,7 @@ function MenuGrid({ menu, onSelectItem }) {
           <h3>{cat.name}</h3>
           <div className="items">
             {cat.items.map(it => (
-              <button key={it.id} className="item" onClick={() => onSelectItem({ ...it, categoryName: cat.name })}>
+              <button key={it.id} className="item" onClick={() => onAddItem(it)}>
                 <div>{it.name}</div>
                 <small>{it.price.toFixed(2)}€</small>
               </button>
@@ -101,7 +101,7 @@ function MenuGrid({ menu, onSelectItem }) {
   )
 }
 
-function Cart({ items, onRemove, onSubmit, table }) {
+function Cart({ items, onRemove, onSubmit, onEditNotes, table }) {
   const total = items.reduce((s, it) => s + it.price * it.qty, 0)
   return (
     <div className="panel" style={{minWidth:280}}>
@@ -109,8 +109,14 @@ function Cart({ items, onRemove, onSubmit, table }) {
       <ul>
         {items.map((it, idx) => (
           <li key={idx}>
-            <div style={{flex:1}}>{it.qty}× {it.name} {it.notes ? `(${it.notes})` : ''}</div>
-            <button className="btn btn-ghost btn-sm" onClick={() => onRemove(idx)}>Entfernen</button>
+            <div style={{flex:1}}>
+              {it.qty}× {it.name}
+              {it.notes && <div className="muted" style={{fontSize:12,marginTop:2}}>{it.notes}</div>}
+            </div>
+            <div style={{display:'flex',gap:4}}>
+              <button className="btn btn-ghost btn-sm" onClick={() => onEditNotes(idx)} title="Notizen bearbeiten">✏️</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => onRemove(idx)}>✕</button>
+            </div>
           </li>
         ))}
       </ul>
@@ -124,9 +130,10 @@ export default function App() {
   const [table, setTable] = useState('')
   const [menu, setMenu] = useState([])
   const [cart, setCart] = useState([])
-  const [currentSelection, setCurrentSelection] = useState(null) // item selected to set qty/notes
+  const [editingItem, setEditingItem] = useState(null) // {index, notes} for editing cart item notes
   const [view, setView] = useState('order')
   const [tables, setTables] = useState([])
+  const [navOpen, setNavOpen] = useState(false)
 
   useEffect(() => {
     fetch('/api/menu').then(r => r.json()).then(setMenu)
@@ -143,16 +150,48 @@ export default function App() {
     setTable(newTable)
   }
 
-  function addItem(it) {
-    setCart(c => [...c, it])
+  function addItem(menuItem) {
+    if (!table) {
+      alert('Bitte zuerst einen Tisch wählen.')
+      return
+    }
+    setCart(c => {
+      const idx = c.findIndex(it => it.id === menuItem.id && (it.notes||'') === '')
+      if (idx >= 0) {
+        return c.map((it,i) => i===idx ? { ...it, qty: it.qty + 1 } : it)
+      }
+      return [...c, { id: menuItem.id, name: menuItem.name, price: menuItem.price, qty: 1, notes: '' }]
+    })
   }
 
   function removeItem(idx) {
     setCart(c => c.filter((_, i) => i !== idx))
   }
 
+  function startEditNotes(idx) {
+    setEditingItem({ index: idx, notes: cart[idx].notes || '' })
+  }
+
+  function saveNotes() {
+    if (editingItem === null) return
+    setCart(c => c.map((it, i) => i === editingItem.index ? { ...it, notes: editingItem.notes } : it))
+    setEditingItem(null)
+  }
+
+  function changeView(v) {
+    setView(v)
+    setNavOpen(false)
+  }
+
   async function submitOrder() {
-    const body = { tableNumber: table, items: cart.map(i => ({ id: i.id, qty: i.qty, notes: i.notes })) }
+    // Group identical items (same id + notes) into single lines
+    const grouped = []
+    for (const i of cart) {
+      const keyIndex = grouped.findIndex(g => g.id === i.id && (g.notes||'') === (i.notes||''))
+      if (keyIndex >= 0) { grouped[keyIndex].qty += i.qty }
+      else { grouped.push({ id: i.id, qty: i.qty, notes: i.notes }) }
+    }
+    const body = { tableNumber: table, items: grouped }
     const res = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     const data = await res.json()
     alert('Bestellung gesendet — Nr. ' + data.id + '\nSumme: ' + data.total.toFixed(2) + '€')
@@ -175,11 +214,14 @@ export default function App() {
               </div>
             </div>
           </div>
-          <nav className="tabs">
-            <button className={`tab ${view==='order'?'active':''}`} onClick={() => setView('order')}>Bestellen</button>
-            <button className={`tab ${view==='service'?'active':''}`} onClick={() => setView('service')}>Bezahlen</button>
-            <button className={`tab ${view==='kitchen'?'active':''}`} onClick={() => setView('kitchen')}>Küche</button>
-            <button className={`tab ${view==='admin'?'active':''}`} onClick={() => setView('admin')}>Admin</button>
+          <button className="hamburger" aria-label="Menü" onClick={()=>setNavOpen(o=>!o)}>
+            <span></span><span></span><span></span>
+          </button>
+          <nav className={`tabs ${navOpen ? 'open' : ''}`} role="navigation" aria-label="Hauptnavigation">
+            <button className={`tab ${view==='order'?'active':''}`} onClick={() => changeView('order')}>Bestellen</button>
+            <button className={`tab ${view==='service'?'active':''}`} onClick={() => changeView('service')}>Bezahlen</button>
+            <button className={`tab ${view==='kitchen'?'active':''}`} onClick={() => changeView('kitchen')}>Küche</button>
+            <button className={`tab ${view==='admin'?'active':''}`} onClick={() => changeView('admin')}>Admin</button>
           </nav>
         </div>
       </header>
@@ -189,8 +231,8 @@ export default function App() {
             <TableSelectControl tables={tables} value={table} onChange={changeTable} />
             {table ? (
               <div className="layout">
-                <MenuGrid menu={menu} onSelectItem={it => setCurrentSelection(it)} />
-                <Cart items={cart} onRemove={removeItem} onSubmit={submitOrder} table={table} />
+                <MenuGrid menu={menu} onAddItem={addItem} />
+                <Cart items={cart} onRemove={removeItem} onEditNotes={startEditNotes} onSubmit={submitOrder} table={table} />
               </div>
             ) : (
               <div className="panel">
@@ -206,42 +248,35 @@ export default function App() {
         {view === 'admin' && <Admin onRefreshMenu={() => fetch('/api/menu').then(r=>r.json()).then(setMenu)} />}
       </main>
 
-      {currentSelection && (
-        <OrderModal
-          item={currentSelection}
-          onCancel={() => setCurrentSelection(null)}
-          onAdd={(qty, notes) => { if (!table) { alert('Bitte zuerst einen Tisch wählen.'); return; } addItem({ id: currentSelection.id, name: currentSelection.name, price: currentSelection.price, qty, notes }); setCurrentSelection(null) }}
+      {editingItem && (
+        <EditNotesModal
+          item={cart[editingItem.index]}
+          notes={editingItem.notes}
+          onNotesChange={(notes) => setEditingItem({ ...editingItem, notes })}
+          onCancel={() => setEditingItem(null)}
+          onSave={saveNotes}
         />
       )}
     </div>
   )
 }
 
-function OrderModal({ item, onCancel, onAdd }) {
-  const [qty, setQty] = useState(1)
-  const [notes, setNotes] = useState('')
-  const isDrink = (item?.categoryName || '').toLowerCase().includes('geträn')
-  const placeholder = isDrink
-    ? 'z.B. ohne Eis, wenig Kohlensäure, mit Zitrone'
-    : 'z.B. ohne Zwiebeln, extra scharf'
+function EditNotesModal({ item, notes, onNotesChange, onCancel, onSave }) {
   return (
-    <div className="modal-backdrop">
-      <div className="modal">
-        <h3>{item.name}</h3>
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <h3>Sonderwünsche für {item.name}</h3>
         <div>
-          <label>Menge</label>
-          <div style={{display:'flex', gap:8, alignItems:'center'}}>
-            <button className="btn btn-secondary" onClick={()=>setQty(q=>Math.max(1,q-1))}>−</button>
-            <input type="number" min="1" value={qty} onChange={e=>setQty(parseInt(e.target.value||'1',10))} style={{flex:1, textAlign:'center'}} />
-            <button className="btn btn-secondary" onClick={()=>setQty(q=>q+1)}>+</button>
-          </div>
-        </div>
-        <div>
-          <label>Sonderwünsche</label>
-          <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder={placeholder} />
+          <label>Notizen</label>
+          <textarea 
+            value={notes} 
+            onChange={e => onNotesChange(e.target.value)} 
+            placeholder="z.B. ohne Zwiebeln, extra scharf, ohne Eis..."
+            autoFocus
+          />
         </div>
         <div className="actions">
-          <button className="btn btn-primary" onClick={() => onAdd(qty, notes)}>Hinzufügen</button>
+          <button className="btn btn-primary" onClick={onSave}>Speichern</button>
           <button className="btn btn-ghost" onClick={onCancel}>Abbrechen</button>
         </div>
       </div>
@@ -338,8 +373,8 @@ function Service() {
           </div>
           <ul className="pay-list">
             {items.map(it => (
-              <li key={it.id}>
-                <input type="checkbox" checked={selected.has(it.id)} onChange={() => toggle(it.id)} />
+              <li key={it.id} onClick={() => toggle(it.id)} style={{cursor:'pointer'}}>
+                <input type="checkbox" checked={selected.has(it.id)} onChange={(e) => { e.stopPropagation(); toggle(it.id) }} />
                 <div className="pay-desc">
                   <div className="line">
                     <span className="badge">#{it.order_id}</span>
@@ -365,7 +400,6 @@ function Admin({ onRefreshMenu }) {
   const [categories, setCategories] = useState([])
   const [items, setItems] = useState([])
   const [tables, setTables] = useState([])
-  const [reportDate, setReportDate] = useState(() => new Date().toISOString().slice(0,10))
   const [newCat, setNewCat] = useState('')
   const [newItem, setNewItem] = useState({ name: '', category_id: '', price: '' })
   const [newTable, setNewTable] = useState('')
@@ -382,43 +416,54 @@ function Admin({ onRefreshMenu }) {
   function fmtEuro(n) { return (Number(n)||0).toFixed(2) + '€' }
 
   async function openRevenueWindow() {
-    const q = reportDate ? `?date=${encodeURIComponent(reportDate)}` : ''
-    const data = await (await fetch('/api/admin/reports/summary'+q)).json()
+    const data = await (await fetch('/api/admin/reports/summary')).json()
     const w = window.open('', '_blank')
     if (!w) return
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Umsatz ${reportDate}</title>
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Umsatz (Gesamt)</title>
       <style>body{font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;padding:16px;color:#0b0f14} .big{font-size:28px;font-weight:800} .muted{color:#555}</style>
       </head><body>
-      <h2>Umsatz (bezahlt) — ${reportDate}</h2>
+      <h2>Umsatz (bezahlt) — Gesamt</h2>
       <div class="big">${fmtEuro(data.revenuePaid||0)}</div>
-      <div class="muted">Basis: bezahlte Positionen des Tages</div>
+      <div class="muted">Basis: alle bezahlten Positionen in der Datenbank</div>
+      </body></html>`)
+    w.document.close()
+  }
+
+  async function openRevenueAllWindow() {
+    const data = await (await fetch('/api/admin/reports/summary-all')).json()
+    const w = window.open('', '_blank')
+    if (!w) return
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Umsatz (Alle Positionen)</title>
+      <style>body{font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;padding:16px;color:#0b0f14} .big{font-size:28px;font-weight:800} .muted{color:#555}</style>
+      </head><body>
+      <h2>Umsatz (alle Positionen) — Gesamt</h2>
+      <div class="big">${fmtEuro(data.revenueAll||0)}</div>
+      <div class="muted">Basis: alle Positionen (bezahlt und nicht bezahlt)</div>
       </body></html>`)
     w.document.close()
   }
 
   async function openOrdersWindow() {
-    const q = reportDate ? `?date=${encodeURIComponent(reportDate)}` : ''
-    const rows = await (await fetch('/api/admin/reports/orders'+q)).json()
+    const rows = await (await fetch('/api/admin/reports/orders')).json()
     const w = window.open('', '_blank'); if (!w) return
-    const head = `<!doctype html><html><head><meta charset="utf-8"><title>Bestellungen ${reportDate}</title>
+    const head = `<!doctype html><html><head><meta charset="utf-8"><title>Bestellungen (Gesamt)</title>
       <style>body{font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;padding:16px;color:#0b0f14}
       table{border-collapse:collapse;width:100%} th,td{padding:8px 10px;border-bottom:1px solid #eee;text-align:left} thead th{border-bottom:2px solid #ddd;color:#444}
       </style></head><body>`
     const rowsHtml = rows.map(o => `<tr><td>#${o.id}</td><td>${o.table_number||''}</td><td>${tStatus(o.status)}</td><td>${fmtEuro(o.total||0)}</td><td>${(o.created_at||'').replace('T',' ').slice(0,19)}</td></tr>`).join('')
-    const body = `<h2>Bestellungen — ${reportDate}</h2><table><thead><tr><th>#</th><th>Tisch</th><th>Status</th><th>Summe</th><th>Zeit</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
+    const body = `<h2>Bestellungen — Gesamt</h2><table><thead><tr><th>#</th><th>Tisch</th><th>Status</th><th>Summe</th><th>Zeit</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
     w.document.write(head + body + '</body></html>'); w.document.close()
   }
 
   async function openItemsWindow() {
-    const q = reportDate ? `?date=${encodeURIComponent(reportDate)}` : ''
-    const rows = await (await fetch('/api/admin/reports/items'+q)).json()
+    const rows = await (await fetch('/api/admin/reports/items')).json()
     const w = window.open('', '_blank'); if (!w) return
-    const head = `<!doctype html><html><head><meta charset="utf-8"><title>Artikel ${reportDate}</title>
+    const head = `<!doctype html><html><head><meta charset="utf-8"><title>Artikel (Gesamt)</title>
       <style>body{font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;padding:16px;color:#0b0f14}
       table{border-collapse:collapse;width:100%} th,td{padding:8px 10px;border-bottom:1px solid #eee;text-align:left} thead th{border-bottom:2px solid #ddd;color:#444}
       </style></head><body>`
     const rowsHtml = rows.map(r => `<tr><td>${r.name}</td><td>${r.soldQty}</td><td>${r.paidQty}</td><td>${fmtEuro(r.revenuePaid||0)}</td></tr>`).join('')
-    const body = `<h2>Verkaufte Artikel — ${reportDate}</h2><table><thead><tr><th>Artikel</th><th>Menge</th><th>Bezahlt (Menge)</th><th>Umsatz (bezahlt)</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
+    const body = `<h2>Verkaufte Artikel — Gesamt</h2><table><thead><tr><th>Artikel</th><th>Menge</th><th>Bezahlt (Menge)</th><th>Umsatz (bezahlt)</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
     w.document.write(head + body + '</body></html>'); w.document.close()
   }
 
@@ -452,13 +497,11 @@ function Admin({ onRefreshMenu }) {
       <div className="panel">
         <h3>Reports</h3>
         <div className="form-row" style={{flexWrap:'wrap'}}>
-          <label>Datum</label>
-          <input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} />
-          <div style={{flex:1}} />
           <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
             <button className="btn btn-secondary" onClick={openRevenueWindow}>Umsatz (bezahlt) anzeigen</button>
-            <button className="btn btn-secondary" onClick={openOrdersWindow}>Bestellungen (Tag) öffnen</button>
-            <button className="btn btn-secondary" onClick={openItemsWindow}>Verkaufte Artikel (Tag) öffnen</button>
+            <button className="btn btn-secondary" onClick={openOrdersWindow}>Bestellungen öffnen</button>
+            <button className="btn btn-secondary" onClick={openRevenueAllWindow}>Umsatz gesamt (inkl. unbezahlte)</button>
+            <button className="btn btn-secondary" onClick={openItemsWindow}>Verkaufte Artikel öffnen</button>
             <button className="btn btn-danger" onClick={()=>setShowReset(true)}>Kasse auf Null setzen</button>
           </div>
         </div>
@@ -474,7 +517,14 @@ function Admin({ onRefreshMenu }) {
 
       <div className="panel span-2">
         <h3>Produkte</h3>
-        <ul>{items.map(it => <li key={it.id}><div style={{flex:1}}>{it.name} — {it.category||'—'} — {it.price}€</div><button className="btn btn-danger btn-sm" onClick={() => delItem(it.id)}>Löschen</button></li>)}</ul>
+        <ul>{items.map(it => <li key={it.id}><div style={{flex:1}}>{it.name} — {it.category||'—'} — {Number(it.price).toFixed(2)}€</div><div style={{display:'flex',gap:6}}><button className="btn btn-secondary btn-sm" onClick={async()=>{
+          const val = prompt('Neuer Preis für '+it.name, String(it.price))
+          if (val===null) return
+          const price = parseFloat(String(val).replace(',','.'))
+          if (isNaN(price)) { alert('Ungültiger Preis'); return }
+          await fetch('/api/admin/items/'+it.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ category_id: it.category_id || null, name: it.name, price, available: it.available?1:0 }) })
+          load(); onRefreshMenu && onRefreshMenu()
+        }}>Preis ändern</button><button className="btn btn-danger btn-sm" onClick={() => delItem(it.id)}>Löschen</button></div></li>)}</ul>
         <div className="form-row" style={{flexWrap:'wrap'}}>
           <input placeholder="Name" value={newItem.name} onChange={e=>setNewItem(s=>({...s,name:e.target.value}))} />
           <select value={newItem.category_id} onChange={e=>setNewItem(s=>({...s,category_id:e.target.value}))}>

@@ -1,7 +1,0 @@
-Bestellung #2
-Tisch: 1
----
-5 x Cola (2 je) 
-1 x Rotwein (5 je) 
----
-Summe: 15.00€

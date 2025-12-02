@@ -1,5 +1,5 @@
 # RIKER – Registrierkassen-Interface für Karnevalssitzungen mit Echtzeit-Rückmeldungen
-k
+
 Eine schlanke Web‑Kasse für Sitzungen: Bestellungen aufnehmen, Küche koordinieren, selektiv bezahlen und Tages‑Reports — alles im Browser, optimiert für Touch.
 
 ## 🎯 Features
@@ -62,11 +62,6 @@ docker run --rm -v riker-data:/data -v ${PWD}:/backup alpine tar xzf /backup/rik
 docker run --rm -v riker-prints:/prints -v ${PWD}:/backup alpine tar xzf /backup/riker-prints-backup.tar.gz -C /prints
 ```
 
-**Unraid-Deployment:**
-- Image auf Docker Hub pushen oder lokal laden: `docker save riker:local -o riker.tar`
-- In Unraid Docker GUI: Image `riker:local`, Port 3000:3000, Named Volumes werden automatisch verwaltet
-- Alternativ: Docker Compose Manager Plugin nutzen
-
 ### Lokale Entwicklung (ohne Docker)
 
 Server starten:
@@ -126,6 +121,4 @@ Hinweis: Im Container liefert Express das gebaute Frontend aus `server/public` a
 ## 📝 Changelog (Kurz)
 - 2025‑11: Docker Compose hinzugefügt; Tischwechsel‑Hinweis bereinigt (statt statisch → kontextuelle Bestätigung)
 
-## 📄 Lizenz
-MIT — siehe `server/package.json`
 

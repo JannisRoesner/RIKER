@@ -1,7 +1,0 @@
-Bestellung #3
-Tisch: 2
----
-2 x Cola (2 je) 
-3 x Salzbrezeln mit Spundekäs (5 je) 
----
-Summe: 19.00€
