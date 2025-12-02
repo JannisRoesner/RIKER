@@ -481,7 +481,7 @@ function Admin({ onRefreshMenu }) {
             <option value="">(keine Kategorie)</option>
             {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <input placeholder="Preis" value={newItem.price} onChange={e=>setNewItem(s=>({...s,price:e.target.value}))} />
+          <input placeholder="Preis" value={newItem.price} onChange={e=>setNewItem(s=>({...s,price:e.target.value.replace(',','.')}))} />
           <button className="btn btn-primary" onClick={addItem}>Produkt hinzufügen</button>
         </div>
       </div>
