@@ -159,13 +159,34 @@ body {
   .layout {
     flex-direction: column;
   }
-  .menu-grid .items { grid-template-columns: repeat(2, minmax(80px, 1fr)); gap: 8px; }
+
+  .page {
+    padding: 10px;
+  }
+
+  .menu-grid {
+    flex: 2;
+  }
+
+  .menu-grid .items { 
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+  }
 
   .panel { padding: 12px; }
   h2 { font-size: 18px; }
   .item { padding: 10px; font-size: 14px; }
   .item small { font-size: 12px; }
   .btn { padding: 10px 12px; }
+}
+
+@media (max-width: 380px) {
+  .menu-grid .items { 
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 380px) {
