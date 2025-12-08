@@ -90,10 +90,10 @@ function MenuGrid({ menu, onAddItem }) {
           <div
             className="items"
             style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              display: 'flex',
+              flexWrap: 'wrap',
               gap: 8,
-              justifyItems: 'stretch'
+              justifyContent: 'space-between'
             }}
           >
             {cat.items.map(it => (
