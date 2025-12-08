@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS items (
   category_id INTEGER REFERENCES categories(id),
   name TEXT NOT NULL,
   price REAL NOT NULL DEFAULT 0,
-  available INTEGER DEFAULT 1
+  available INTEGER DEFAULT 1,
+  note_options TEXT
 );
 
 CREATE TABLE IF NOT EXISTS orders (

@@ -34,6 +34,17 @@ async function start() {
     console.warn('Migration check failed:', err.message || err);
   }
 
+  // Migration: ensure items has 'note_options' column
+  try {
+    const cols = await db.all("PRAGMA table_info('items')");
+    if (!cols.find(c => c.name === 'note_options')) {
+      await db.run('ALTER TABLE items ADD COLUMN note_options TEXT');
+      console.log('Migration: added note_options column to items');
+    }
+  } catch (err) {
+    console.warn('Migration check failed:', err.message || err);
+  }
+
   const app = express();
   app.use(cors());
   app.use(express.json());
@@ -44,14 +55,15 @@ async function start() {
 
   // API
   app.get('/api/menu', async (req, res) => {
-    const items = await db.all(`SELECT i.id, i.name, i.price, i.available, c.id as category_id, c.name as category
+    const items = await db.all(`SELECT i.id, i.name, i.price, i.available, i.note_options, c.id as category_id, c.name as category
       FROM items i JOIN categories c ON i.category_id = c.id
       ORDER BY c.name COLLATE NOCASE ASC, i.name COLLATE NOCASE ASC`);
     // group by category
     const cats = {};
     items.forEach(it => {
       if (!cats[it.category_id]) cats[it.category_id] = { id: it.category_id, name: it.category, items: [] };
-      cats[it.category_id].items.push({ id: it.id, name: it.name, price: it.price, available: !!it.available });
+      const noteOptions = it.note_options ? it.note_options.split(',').map(s => s.trim()).filter(Boolean) : [];
+      cats[it.category_id].items.push({ id: it.id, name: it.name, price: it.price, available: !!it.available, noteOptions });
     });
     res.json(Object.values(cats));
   });
@@ -150,15 +162,15 @@ async function start() {
   });
 
   app.post('/api/admin/items', async (req, res) => {
-    const { category_id, name, price, available } = req.body;
+    const { category_id, name, price, available, note_options } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
-    const result = await db.run('INSERT INTO items (category_id, name, price, available) VALUES (?,?,?,?)', [category_id||null, name, price||0, available?1:0]);
+    const result = await db.run('INSERT INTO items (category_id, name, price, available, note_options) VALUES (?,?,?,?,?)', [category_id||null, name, price||0, available?1:0, note_options||null]);
     res.json({ id: result.lastID });
   });
 
   app.put('/api/admin/items/:id', async (req, res) => {
-    const id = req.params.id; const { category_id, name, price, available } = req.body;
-    await db.run('UPDATE items SET category_id = ?, name = ?, price = ?, available = ? WHERE id = ?', [category_id||null, name, price||0, available?1:0, id]);
+    const id = req.params.id; const { category_id, name, price, available, note_options } = req.body;
+    await db.run('UPDATE items SET category_id = ?, name = ?, price = ?, available = ?, note_options = ? WHERE id = ?', [category_id||null, name, price||0, available?1:0, note_options||null, id]);
     res.json({ ok: true });
   });
 
@@ -178,8 +190,28 @@ async function start() {
   });
 
   app.post('/api/admin/tables', async (req, res) => {
-    const { number } = req.body;
-    if (!number) return res.status(400).json({ error: 'number required' });
+    const { number, range } = req.body;
+    
+    // Handle range input (e.g., "1-30" or "1 - 30")
+    if (range) {
+      const match = String(range).trim().match(/^(\d+)\s*-\s*(\d+)$/);
+      if (!match) return res.status(400).json({ error: 'invalid range format, use "1-30"' });
+      
+      const start = parseInt(match[1], 10);
+      const end = parseInt(match[2], 10);
+      
+      if (start > end) return res.status(400).json({ error: 'start must be <= end' });
+      
+      const results = [];
+      for (let i = start; i <= end; i++) {
+        const result = await db.run('INSERT INTO tables (number) VALUES (?)', String(i));
+        results.push({ id: result.lastID, number: String(i) });
+      }
+      return res.json(results);
+    }
+    
+    // Handle single table
+    if (!number) return res.status(400).json({ error: 'number or range required' });
     const result = await db.run('INSERT INTO tables (number) VALUES (?)', number);
     res.json({ id: result.lastID, number });
   });

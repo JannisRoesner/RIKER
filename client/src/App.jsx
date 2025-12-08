@@ -155,12 +155,24 @@ export default function App() {
       alert('Bitte zuerst einen Tisch wählen.')
       return
     }
+    
+    // If item has note options, open the modal directly for a new item
+    if (menuItem.noteOptions && menuItem.noteOptions.length > 0) {
+      const newItem = { id: menuItem.id, name: menuItem.name, price: menuItem.price, qty: 1, notes: '', noteOptions: menuItem.noteOptions }
+      setCart(c => [...c, newItem])
+      // Open edit modal for the newly added item (last index)
+      setTimeout(() => {
+        setEditingItem({ index: cart.length, notes: '' })
+      }, 0)
+      return
+    }
+    
     setCart(c => {
       const idx = c.findIndex(it => it.id === menuItem.id && (it.notes||'') === '')
       if (idx >= 0) {
         return c.map((it,i) => i===idx ? { ...it, qty: it.qty + 1 } : it)
       }
-      return [...c, { id: menuItem.id, name: menuItem.name, price: menuItem.price, qty: 1, notes: '' }]
+      return [...c, { id: menuItem.id, name: menuItem.name, price: menuItem.price, qty: 1, notes: '', noteOptions: menuItem.noteOptions || [] }]
     })
   }
 
@@ -262,17 +274,50 @@ export default function App() {
 }
 
 function EditNotesModal({ item, notes, onNotesChange, onCancel, onSave }) {
+  const noteOptions = item.noteOptions || [];
+  
+  function toggleOption(option) {
+    const current = notes.split(',').map(s => s.trim()).filter(Boolean);
+    const idx = current.indexOf(option);
+    if (idx >= 0) {
+      // Remove it
+      current.splice(idx, 1);
+    } else {
+      // Add it
+      current.push(option);
+    }
+    onNotesChange(current.join(', '));
+  }
+  
+  const selectedOptions = notes.split(',').map(s => s.trim()).filter(Boolean);
+  
   return (
     <div className="modal-backdrop" onClick={onCancel}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <h3>Sonderwünsche für {item.name}</h3>
+        {noteOptions.length > 0 && (
+          <div style={{marginBottom: 16}}>
+            <label style={{display:'block', marginBottom: 8}}>Optionen wählen</label>
+            <div style={{display:'flex', flexWrap:'wrap', gap:8}}>
+              {noteOptions.map(opt => (
+                <button
+                  key={opt}
+                  className={`btn ${selectedOptions.includes(opt) ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => toggleOption(opt)}
+                  type="button"
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div>
-          <label>Notizen</label>
+          <label>Zusätzliche Notizen</label>
           <textarea 
             value={notes} 
             onChange={e => onNotesChange(e.target.value)} 
             placeholder="z.B. ohne Zwiebeln, extra scharf, ohne Eis..."
-            autoFocus
           />
         </div>
         <div className="actions">
@@ -401,9 +446,10 @@ function Admin({ onRefreshMenu }) {
   const [items, setItems] = useState([])
   const [tables, setTables] = useState([])
   const [newCat, setNewCat] = useState('')
-  const [newItem, setNewItem] = useState({ name: '', category_id: '', price: '' })
+  const [newItem, setNewItem] = useState({ name: '', category_id: '', price: '', note_options: '' })
   const [newTable, setNewTable] = useState('')
   const [showReset, setShowReset] = useState(false)
+  const [editingItemOptions, setEditingItemOptions] = useState(null)
 
   useEffect(() => { load(); }, [])
   function load() {
@@ -476,14 +522,33 @@ function Admin({ onRefreshMenu }) {
 
   async function addItem() {
     if (!newItem.name) return alert('Name required')
-    await fetch('/api/admin/items', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: newItem.name, category_id: newItem.category_id || null, price: parseFloat(newItem.price)||0, available: 1 }) })
-    setNewItem({ name: '', category_id: '', price: '' })
+    await fetch('/api/admin/items', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: newItem.name, category_id: newItem.category_id || null, price: parseFloat(newItem.price)||0, available: 1, note_options: newItem.note_options || null }) })
+    setNewItem({ name: '', category_id: '', price: '', note_options: '' })
     load(); onRefreshMenu && onRefreshMenu()
   }
 
   async function addTable() {
-    if (!newTable) return alert('Number required')
-    await fetch('/api/admin/tables', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ number: newTable }) })
+    if (!newTable) return alert('Number or range required')
+    
+    // Check if input is a range (e.g., "1-30")
+    if (newTable.includes('-')) {
+      const res = await fetch('/api/admin/tables', { 
+        method: 'POST', 
+        headers:{'Content-Type':'application/json'}, 
+        body: JSON.stringify({ range: newTable }) 
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        return alert('Error: ' + (err.error || 'unknown error'))
+      }
+    } else {
+      // Single table
+      await fetch('/api/admin/tables', { 
+        method: 'POST', 
+        headers:{'Content-Type':'application/json'}, 
+        body: JSON.stringify({ number: newTable }) 
+      })
+    }
     setNewTable('')
     load()
   }
@@ -517,14 +582,14 @@ function Admin({ onRefreshMenu }) {
 
       <div className="panel span-2">
         <h3>Produkte</h3>
-        <ul>{items.map(it => <li key={it.id}><div style={{flex:1}}>{it.name} — {it.category||'—'} — {Number(it.price).toFixed(2)}€</div><div style={{display:'flex',gap:6}}><button className="btn btn-secondary btn-sm" onClick={async()=>{
+        <ul>{items.map(it => <li key={it.id}><div style={{flex:1}}>{it.name} — {it.category||'—'} — {Number(it.price).toFixed(2)}€{it.note_options ? <div className="muted" style={{fontSize:12}}>Optionen: {it.note_options}</div> : null}</div><div style={{display:'flex',gap:6}}><button className="btn btn-secondary btn-sm" onClick={async()=>{
           const val = prompt('Neuer Preis für '+it.name, String(it.price))
           if (val===null) return
           const price = parseFloat(String(val).replace(',','.'))
           if (isNaN(price)) { alert('Ungültiger Preis'); return }
-          await fetch('/api/admin/items/'+it.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ category_id: it.category_id || null, name: it.name, price, available: it.available?1:0 }) })
+          await fetch('/api/admin/items/'+it.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ category_id: it.category_id || null, name: it.name, price, available: it.available?1:0, note_options: it.note_options || null }) })
           load(); onRefreshMenu && onRefreshMenu()
-        }}>Preis ändern</button><button className="btn btn-danger btn-sm" onClick={() => delItem(it.id)}>Löschen</button></div></li>)}</ul>
+        }}>Preis ändern</button><button className="btn btn-secondary btn-sm" onClick={()=>setEditingItemOptions({id: it.id, name: it.name, note_options: it.note_options || '', category_id: it.category_id, price: it.price, available: it.available})}>Optionen</button><button className="btn btn-danger btn-sm" onClick={() => delItem(it.id)}>Löschen</button></div></li>)}</ul>
         <div className="form-row" style={{flexWrap:'wrap'}}>
           <input placeholder="Name" value={newItem.name} onChange={e=>setNewItem(s=>({...s,name:e.target.value}))} />
           <select value={newItem.category_id} onChange={e=>setNewItem(s=>({...s,category_id:e.target.value}))}>
@@ -532,6 +597,7 @@ function Admin({ onRefreshMenu }) {
             {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
           <input placeholder="Preis" value={newItem.price} onChange={e=>setNewItem(s=>({...s,price:e.target.value.replace(',','.')}))} />
+          <input placeholder="Optionen (z.B. Ketchup,Mayo)" value={newItem.note_options} onChange={e=>setNewItem(s=>({...s,note_options:e.target.value}))} style={{minWidth:200}} />
           <button className="btn btn-primary" onClick={addItem}>Produkt hinzufügen</button>
         </div>
       </div>
@@ -540,8 +606,8 @@ function Admin({ onRefreshMenu }) {
         <h3>Tische</h3>
         <ul>{tables.map(t => <li key={t.id}><div style={{flex:1}}>{t.number}</div><button className="btn btn-danger btn-sm" onClick={() => delTable(t.id)}>Löschen</button></li>)}</ul>
         <div className="form-row">
-          <input placeholder="Tischnummer" value={newTable} onChange={e=>setNewTable(e.target.value)} />
-          <button className="btn btn-primary" onClick={addTable}>Tisch hinzufügen</button>
+          <input placeholder="Tischnummer oder Bereich (z.B. 1-30)" value={newTable} onChange={e=>setNewTable(e.target.value)} />
+          <button className="btn btn-primary" onClick={addTable}>Tische hinzufügen</button>
         </div>
       </div>
       {showReset && (
@@ -556,6 +622,28 @@ function Admin({ onRefreshMenu }) {
           }
           setShowReset(false)
         }} />
+      )}
+      {editingItemOptions && (
+        <EditItemOptionsModal
+          item={editingItemOptions}
+          onClose={() => setEditingItemOptions(null)}
+          onSave={async (noteOptions) => {
+            await fetch('/api/admin/items/'+editingItemOptions.id, {
+              method: 'PUT',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({
+                category_id: editingItemOptions.category_id || null,
+                name: editingItemOptions.name,
+                price: editingItemOptions.price,
+                available: editingItemOptions.available ? 1 : 0,
+                note_options: noteOptions || null
+              })
+            })
+            setEditingItemOptions(null)
+            load()
+            onRefreshMenu && onRefreshMenu()
+          }}
+        />
       )}
     </div>
   )
@@ -573,6 +661,35 @@ function AdminResetModal({ onClose, onConfirm }) {
         <p className="muted">Bon-Dateien im Ordner <code>prints/</code> werden ebenfalls entfernt.</p>
         <div className="actions">
           <button className="btn btn-danger" onClick={onConfirm}>Ja, alles löschen</button>
+          <button className="btn btn-ghost" onClick={onClose}>Abbrechen</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EditItemOptionsModal({ item, onClose, onSave }) {
+  const [noteOptions, setNoteOptions] = useState(item.note_options || '')
+  
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <h3>Notiz-Optionen für {item.name}</h3>
+        <div>
+          <label>Optionen (komma-getrennt)</label>
+          <input
+            type="text"
+            value={noteOptions}
+            onChange={e => setNoteOptions(e.target.value)}
+            placeholder="z.B. Ketchup,Mayo,ohne Zwiebeln"
+            autoFocus
+          />
+          <div className="muted" style={{fontSize:12, marginTop:4}}>
+            Diese Optionen erscheinen als Buttons beim Hinzufügen von Notizen zu diesem Artikel.
+          </div>
+        </div>
+        <div className="actions">
+          <button className="btn btn-primary" onClick={() => onSave(noteOptions)}>Speichern</button>
           <button className="btn btn-ghost" onClick={onClose}>Abbrechen</button>
         </div>
       </div>
