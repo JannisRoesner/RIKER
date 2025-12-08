@@ -87,7 +87,7 @@ function MenuGrid({ menu, onAddItem }) {
       {menu.map(cat => (
         <div key={cat.id} className="category">
           <h3>{cat.name}</h3>
-          <div className="items">
+          <div className="items" style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(140px, 1fr))', gap:10}}>
             {cat.items.map(it => (
               <button key={it.id} className="item" onClick={() => onAddItem(it)}>
                 <div>{it.name}</div>
