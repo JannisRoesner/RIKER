@@ -196,8 +196,8 @@ body {
 .panel h2, .panel h3 { margin-top: 0 }
 
 .menu-grid { flex: 2; display:flex; flex-direction:column; gap:12px }
-.items { display:flex !important; flex-wrap: wrap !important; gap:8px !important; justify-content: space-between !important; }
-.item { flex: 0 0 calc(50% - 8px) !important; }
+.items { display:flex !important; flex-wrap: wrap !important; column-gap:8px !important; row-gap:8px !important; justify-content: flex-start !important; }
+.item { flex: 0 0 calc(50% - 8px) !important; width: calc(50% - 8px) !important; min-width: 0 !important; }
 .item { padding:12px; border-radius:12px; background: linear-gradient(180deg, var(--card), var(--surface)); border:1px solid rgba(255,255,255,0.06); color:#fff; text-align:left; cursor:pointer; transition: transform .08s ease, background .2s ease }
 .item:hover { transform: translateY(-1px) }
 .item small { color: var(--muted) }

@@ -92,12 +92,18 @@ function MenuGrid({ menu, onAddItem }) {
             style={{
               display: 'flex',
               flexWrap: 'wrap',
-              gap: 8,
-              justifyContent: 'space-between'
+              columnGap: 8,
+              rowGap: 8,
+              justifyContent: 'flex-start'
             }}
           >
             {cat.items.map(it => (
-              <button key={it.id} className="item" onClick={() => onAddItem(it)}>
+              <button
+                key={it.id}
+                className="item"
+                onClick={() => onAddItem(it)}
+                style={{ width: 'calc(50% - 8px)', minWidth: 0 }}
+              >
                 <div>{it.name}</div>
                 <small>{it.price.toFixed(2)}€</small>
               </button>
