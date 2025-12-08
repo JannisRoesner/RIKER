@@ -184,9 +184,6 @@ body {
 }
 
 @media (max-width: 380px) {
-  .menu-grid .items { 
-    grid-template-columns: 1fr !important;
-  }
 }
 
 @media (max-width: 820px) { .layout { flex-direction: column } }
