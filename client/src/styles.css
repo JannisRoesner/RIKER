@@ -159,11 +159,8 @@ body {
   .layout {
     flex-direction: column;
   }
-  .menu-grid .items { grid-template-columns: repeat(3, minmax(0,1fr)); }
-  @media (max-width: 500px) {
-    .menu-grid .items { grid-template-columns: repeat(2, minmax(0,1fr)); }
-  }
-  @media (max-width: 360px) {
+  .menu-grid .items { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  @media (max-width: 380px) {
     .menu-grid .items { grid-template-columns: repeat(1, minmax(0,1fr)); }
   }
 
