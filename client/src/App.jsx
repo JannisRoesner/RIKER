@@ -91,7 +91,7 @@ function MenuGrid({ menu, onAddItem }) {
             className="items"
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
               gap: 8,
               justifyItems: 'stretch'
             }}

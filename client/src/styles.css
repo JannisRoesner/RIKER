@@ -196,7 +196,7 @@ body {
 .panel h2, .panel h3 { margin-top: 0 }
 
 .menu-grid { flex: 2; display:flex; flex-direction:column; gap:12px }
-.items { display:grid !important; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)) !important; gap:8px !important; }
+.items { display:grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap:8px !important; }
 .item { padding:12px; border-radius:12px; background: linear-gradient(180deg, var(--card), var(--surface)); border:1px solid rgba(255,255,255,0.06); color:#fff; text-align:left; cursor:pointer; transition: transform .08s ease, background .2s ease }
 .item:hover { transform: translateY(-1px) }
 .item small { color: var(--muted) }
