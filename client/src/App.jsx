@@ -90,11 +90,10 @@ function MenuGrid({ menu, onAddItem }) {
           <div
             className="items"
             style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              columnGap: 8,
-              rowGap: 8,
-              justifyContent: 'flex-start'
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 6,
+              width: '100%'
             }}
           >
             {cat.items.map(it => (
@@ -102,7 +101,7 @@ function MenuGrid({ menu, onAddItem }) {
                 key={it.id}
                 className="item"
                 onClick={() => onAddItem(it)}
-                style={{ width: 'calc(50% - 8px)', minWidth: 0 }}
+                style={{ width: '100%' }}
               >
                 <div>{it.name}</div>
                 <small>{it.price.toFixed(2)}€</small>
