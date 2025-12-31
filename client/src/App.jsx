@@ -463,6 +463,7 @@ function Admin({ onRefreshMenu }) {
   const [newTable, setNewTable] = useState('')
   const [showReset, setShowReset] = useState(false)
   const [editingItemOptions, setEditingItemOptions] = useState(null)
+  const [showImport, setShowImport] = useState(false)
 
   useEffect(() => { load(); }, [])
   function load() {
@@ -570,6 +571,24 @@ function Admin({ onRefreshMenu }) {
   async function delCategory(id) { if (!confirm('löschen?')) return; await fetch('/api/admin/categories/'+id, { method: 'DELETE' }); load(); }
   async function delTable(id) { if (!confirm('löschen?')) return; await fetch('/api/admin/tables/'+id, { method: 'DELETE' }); load(); }
 
+  async function downloadTemplate() {
+    try {
+      const res = await fetch('/api/admin/export-template')
+      if (!res.ok) throw new Error('Download fehlgeschlagen')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'produkte-template.xlsx'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      alert('Fehler beim Download: ' + err.message)
+    }
+  }
+
   return (
     <div className="admin-grid">
       <div className="panel">
@@ -595,6 +614,10 @@ function Admin({ onRefreshMenu }) {
 
       <div className="panel span-2">
         <h3>Produkte</h3>
+        <div style={{marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap'}}>
+          <button className="btn btn-secondary" onClick={downloadTemplate}>Vorlage herunterladen</button>
+          <button className="btn btn-secondary" onClick={() => setShowImport(true)}>Preisliste hochladen</button>
+        </div>
         <ul>{items.map(it => <li key={it.id}><div style={{flex:1}}>{it.name} — {it.category||'—'} — {Number(it.price).toFixed(2)}€{it.note_options ? <div className="muted" style={{fontSize:12}}>Optionen: {it.note_options}</div> : null}</div><div style={{display:'flex',gap:6}}><button className="btn btn-secondary btn-sm" onClick={async()=>{
           const val = prompt('Neuer Preis für '+it.name, String(it.price))
           if (val===null) return
@@ -658,6 +681,15 @@ function Admin({ onRefreshMenu }) {
           }}
         />
       )}
+      {showImport && (
+        <ImportProductsModal 
+          onClose={() => setShowImport(false)}
+          onSuccess={() => {
+            load()
+            onRefreshMenu && onRefreshMenu()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -704,6 +736,122 @@ function EditItemOptionsModal({ item, onClose, onSave }) {
         <div className="actions">
           <button className="btn btn-primary" onClick={() => onSave(noteOptions)}>Speichern</button>
           <button className="btn btn-ghost" onClick={onClose}>Abbrechen</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+function ImportProductsModal({ onClose, onSuccess }) {
+  const [file, setFile] = useState(null)
+  const [preview, setPreview] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  async function handleFileSelect(e) {
+    const f = e.target.files?.[0]
+    if (!f) return
+    setFile(f)
+    setError(null)
+    
+    // Quick validation
+    if (!f.name.endsWith('.xlsx') && !f.name.endsWith('.xls') && !f.name.endsWith('.csv')) {
+      setError('Nur Excel (.xlsx, .xls) oder CSV-Dateien erlaubt')
+      setFile(null)
+      return
+    }
+    
+    if (f.size > 10 * 1024 * 1024) {
+      setError('Datei ist zu groß (max. 10MB)')
+      setFile(null)
+      return
+    }
+    
+    setPreview(`${f.name} (${(f.size / 1024).toFixed(0)} KB)`)
+  }
+
+  async function handleImport() {
+    if (!file) return
+    setLoading(true)
+    setError(null)
+    
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      
+      const res = await fetch('/api/admin/import-products', {
+        method: 'POST',
+        body: formData
+      })
+      
+      const data = await res.json()
+      
+      if (!res.ok) {
+        setError(data.error || 'Import fehlgeschlagen')
+        return
+      }
+      
+      // Show summary
+      let message = `Import erfolgreich! ${data.success} Produkte hinzugefügt/aktualisiert.`
+      if (data.errors && data.errors.length > 0) {
+        message += `\n\nWarnungen (${data.errors.length}):`
+        data.errors.slice(0, 10).forEach(err => {
+          message += `\n- Zeile ${err.line}: ${err.error}`
+        })
+        if (data.errors.length > 10) {
+          message += `\n... und ${data.errors.length - 10} weitere`
+        }
+      }
+      alert(message)
+      onSuccess?.()
+      onClose()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" style={{minWidth: 400}} onClick={e => e.stopPropagation()}>
+        <h3>Preisliste importieren</h3>
+        
+        <div style={{padding: '16px', backgroundColor: '#f5f5f5', borderRadius: 4, marginBottom: 16}}>
+          <div className="muted" style={{fontSize: 12, marginBottom: 8}}>
+            Excel-Datei mit Spalten: <strong>Produktname, Kategorie, Preis, Optionen</strong>
+          </div>
+          <div className="muted" style={{fontSize: 11}}>
+            Bestehende Produkte mit gleichem Namen + Kategorie werden aktualisiert.
+          </div>
+        </div>
+        
+        {error && (
+          <div style={{padding: 12, backgroundColor: '#fee', borderRadius: 4, marginBottom: 16, color: '#b00', fontSize: 14}}>
+            {error}
+          </div>
+        )}
+        
+        <div style={{marginBottom: 16}}>
+          <input 
+            type="file" 
+            accept=".xlsx,.xls,.csv"
+            onChange={handleFileSelect}
+            disabled={loading}
+          />
+          {preview && (
+            <div className="muted" style={{fontSize: 12, marginTop: 8}}>✓ {preview}</div>
+          )}
+        </div>
+        
+        <div className="actions">
+          <button 
+            className="btn btn-primary" 
+            onClick={handleImport}
+            disabled={!file || loading}
+          >
+            {loading ? 'Wird importiert...' : 'Importieren'}
+          </button>
+          <button className="btn btn-ghost" onClick={onClose} disabled={loading}>Abbrechen</button>
         </div>
       </div>
     </div>

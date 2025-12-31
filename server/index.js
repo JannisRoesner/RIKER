@@ -4,6 +4,8 @@ const express = require('express');
 const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
+const multer = require('multer');
+const XLSX = require('xlsx');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.sqlite');
@@ -48,6 +50,12 @@ async function start() {
   const app = express();
   app.use(cors());
   app.use(express.json());
+  
+  // Configure multer for file uploads (max 10MB)
+  const upload = multer({ 
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 }
+  });
 
   // Serve built frontend
   const publicDir = path.join(__dirname, 'public');
@@ -506,6 +514,204 @@ async function start() {
     } catch (err) {
       console.error('admin reset error', err);
       res.status(500).json({ error: 'internal' });
+    }
+  });
+
+  // Admin: Export product template as Excel
+  app.get('/api/admin/export-template', async (req, res) => {
+    try {
+      // Get current categories and products for template
+      const categories = await db.all('SELECT * FROM categories ORDER BY name COLLATE NOCASE ASC');
+      const items = await db.all(`
+        SELECT i.*, c.name as category
+        FROM items i LEFT JOIN categories c ON i.category_id = c.id
+        ORDER BY c.name COLLATE NOCASE ASC, i.name COLLATE NOCASE ASC
+      `);
+      
+      // Create workbook with template sheet
+      const ws_data = [
+        ['Produktname', 'Kategorie', 'Preis', 'Optionen'],
+      ];
+      
+      // Add existing products as examples
+      items.forEach(item => {
+        ws_data.push([
+          item.name,
+          item.category || '',
+          item.price,
+          item.note_options || ''
+        ]);
+      });
+      
+      // Add example template rows if no data exists
+      if (items.length === 0) {
+        ws_data.push(['A-Sauer', 'Getränke', 3.00, '']);
+        ws_data.push(['A-Süß', 'Getränke', 3.00, '']);
+        ws_data.push(['Aperol', 'Getränke', 7.50, '']);
+        ws_data.push(['Apfelschorle', 'Getränke', 2.50, '']);
+        ws_data.push(['Cola', 'Getränke', 2.50, '']);
+        ws_data.push(['Rotwein (Flasche)', 'Getränke', 15.00, '']);
+        ws_data.push(['Rotwein (glas)', 'Getränke', 4.50, '']);
+        ws_data.push(['Brezelchen', 'Speisen', 3.00, '']);
+        ws_data.push(['Brötchen', 'Speisen', 3.00, 'Mett|Salami|Schinken|Käse']);
+        ws_data.push(['Fleischwurst', 'Speisen', 4.00, 'Ketchup|Senf']);
+        ws_data.push(['Pommes', 'Speisen', 3.00, 'Ketchup|Mayo']);
+        ws_data.push(['Rindsowurst', 'Speisen', 4.00, 'Ketchup|Senf']);
+      }
+      
+      // Add a few empty rows for new products
+      for (let i = 0; i < 5; i++) {
+        ws_data.push(['', '', '', '']);
+      }
+      
+      const ws = XLSX.utils.aoa_to_sheet(ws_data);
+      
+      // Format header row (bold, background)
+      const headerStyle = {
+        font: { bold: true, color: { rgb: 'FFFFFF' } },
+        fill: { fgColor: { rgb: '1F4E78' } },
+        alignment: { horizontal: 'center', vertical: 'center' },
+        border: {
+          top: { style: 'thin', color: { rgb: '000000' } },
+          bottom: { style: 'thin', color: { rgb: '000000' } },
+          left: { style: 'thin', color: { rgb: '000000' } },
+          right: { style: 'thin', color: { rgb: '000000' } }
+        }
+      };
+      
+      // Apply header style to first row
+      for (let col = 0; col < 4; col++) {
+        const cellRef = XLSX.utils.encode_cell({ r: 0, c: col });
+        ws[cellRef].s = headerStyle;
+      }
+      
+      // Format data rows with borders and alignment
+      for (let row = 1; row < ws_data.length; row++) {
+        for (let col = 0; col < 4; col++) {
+          const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
+          if (ws[cellRef]) {
+            ws[cellRef].s = {
+              alignment: { horizontal: col === 0 ? 'left' : 'center', vertical: 'center', wrapText: true },
+              border: {
+                top: { style: 'thin', color: { rgb: 'CCCCCC' } },
+                bottom: { style: 'thin', color: { rgb: 'CCCCCC' } },
+                left: { style: 'thin', color: { rgb: 'CCCCCC' } },
+                right: { style: 'thin', color: { rgb: 'CCCCCC' } }
+              },
+              numFmt: col === 2 ? '0.00' : '@'  // Format price column as decimal
+            };
+          }
+        }
+      }
+      
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 30 },  // Produktname
+        { wch: 15 },  // Kategorie
+        { wch: 10 },  // Preis
+        { wch: 40 }   // Optionen
+      ];
+      
+      // Freeze header row
+      ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+      
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Produkte');
+      
+      // Send as file download
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename=produkte-template.xlsx');
+      
+      const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });
+      res.send(buffer);
+    } catch (err) {
+      console.error('Export error:', err);
+      res.status(500).json({ error: err.message || 'Export failed' });
+    }
+  });
+
+  // Admin: Import products from Excel
+  app.post('/api/admin/import-products', upload.single('file'), async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+      
+      // Parse Excel file
+      const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(worksheet);
+      
+      if (!rows || rows.length === 0) {
+        return res.status(400).json({ error: 'No data found in spreadsheet' });
+      }
+      
+      // Validate and prepare data
+      const results = { success: 0, errors: [] };
+      
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const lineNum = i + 2; // +2 because headers are row 1, data starts at row 2
+        
+        // Extract and trim values
+        const name = (row['Produktname'] || row['Name'] || '').trim();
+        const categoryName = (row['Kategorie'] || row['Category'] || '').trim();
+        const priceStr = String(row['Preis'] || row['Price'] || '0').trim().replace(',', '.');
+        const noteOptions = (row['Optionen'] || row['Options'] || '').trim();
+        
+        // Validation
+        if (!name) {
+          results.errors.push({ line: lineNum, error: 'Produktname fehlt' });
+          continue;
+        }
+        
+        const price = parseFloat(priceStr);
+        if (isNaN(price)) {
+          results.errors.push({ line: lineNum, error: `Ungültiger Preis: "${priceStr}"` });
+          continue;
+        }
+        
+        try {
+          // Get or create category
+          let categoryId = null;
+          if (categoryName) {
+            let category = await db.get('SELECT id FROM categories WHERE name = ?', categoryName);
+            if (!category) {
+              const result = await db.run('INSERT INTO categories (name) VALUES (?)', categoryName);
+              categoryId = result.lastID;
+            } else {
+              categoryId = category.id;
+            }
+          }
+          
+          // Check if product already exists
+          const existing = await db.get(
+            'SELECT id FROM items WHERE name = ? AND category_id = ?',
+            [name, categoryId]
+          );
+          
+          if (existing) {
+            // Update existing product
+            await db.run(
+              'UPDATE items SET price = ?, note_options = ? WHERE id = ?',
+              [price, noteOptions || null, existing.id]
+            );
+          } else {
+            // Insert new product
+            await db.run(
+              'INSERT INTO items (name, category_id, price, available, note_options) VALUES (?, ?, ?, 1, ?)',
+              [name, categoryId, price, noteOptions || null]
+            );
+          }
+          
+          results.success++;
+        } catch (err) {
+          results.errors.push({ line: lineNum, error: err.message });
+        }
+      }
+      
+      res.json(results);
+    } catch (err) {
+      console.error('Import error:', err);
+      res.status(500).json({ error: err.message || 'Import failed' });
     }
   });
 
