@@ -553,10 +553,10 @@ async function start() {
         ws_data.push(['Rotwein (Flasche)', 'Getränke', 15.00, '']);
         ws_data.push(['Rotwein (glas)', 'Getränke', 4.50, '']);
         ws_data.push(['Brezelchen', 'Speisen', 3.00, '']);
-        ws_data.push(['Brötchen', 'Speisen', 3.00, 'Mett|Salami|Schinken|Käse']);
-        ws_data.push(['Fleischwurst', 'Speisen', 4.00, 'Ketchup|Senf']);
-        ws_data.push(['Pommes', 'Speisen', 3.00, 'Ketchup|Mayo']);
-        ws_data.push(['Rindsowurst', 'Speisen', 4.00, 'Ketchup|Senf']);
+        ws_data.push(['Brötchen', 'Speisen', 3.00, 'Mett, Salami, Schinken, Käse']);
+        ws_data.push(['Fleischwurst', 'Speisen', 4.00, 'Ketchup, Senf']);
+        ws_data.push(['Pommes', 'Speisen', 3.00, 'Ketchup, Mayo']);
+        ws_data.push(['Rindsowurst', 'Speisen', 4.00, 'Ketchup, Senf']);
       }
       
       // Add a few empty rows for new products
