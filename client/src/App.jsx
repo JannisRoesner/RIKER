@@ -271,7 +271,7 @@ export default function App() {
               </div>
             ) : (
               <div className="panel">
-                editingItem.newItem || <h2>Bitte Tisch wählen</h2>
+                <h2>Bitte Tisch wählen</h2>
                 <div className="muted">Wähle zuerst einen Tisch, um Artikel zu sehen und zu bestellen.</div>
               </div>
             )}
@@ -285,7 +285,7 @@ export default function App() {
 
       {editingItem && (
         <EditNotesModal
-          item={cart[editingItem.index]}
+          item={editingItem.newItem ? editingItem.newItem : cart[editingItem.index]}
           notes={editingItem.notes}
           onNotesChange={(notes) => setEditingItem({ ...editingItem, notes })}
           onCancel={() => setEditingItem(null)}
@@ -297,6 +297,11 @@ export default function App() {
 }
 
 function EditNotesModal({ item, notes, onNotesChange, onCancel, onSave }) {
+  if (!item) {
+    console.error('EditNotesModal: item is undefined!')
+    return null
+  }
+  
   const noteOptions = item.noteOptions || [];
   
   function toggleOption(option) {
