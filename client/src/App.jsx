@@ -143,7 +143,7 @@ export default function App() {
   const [table, setTable] = useState('')
   const [menu, setMenu] = useState([])
   const [cart, setCart] = useState([])
-  const [editingItem, setEditingItem] = useState(null) // {index, notes} for editing cart item notes
+  const [editingItem, setEditingItem] = useState(null) // {index, notes} or {newItem, notes} for editing notes
   const [view, setView] = useState('order')
   const [tables, setTables] = useState([])
   const [navOpen, setNavOpen] = useState(false)
@@ -169,14 +169,10 @@ export default function App() {
       return
     }
     
-    // If item has note options, open the modal directly for a new item
+    // If item has note options, open the modal first before adding to cart
     if (menuItem.noteOptions && menuItem.noteOptions.length > 0) {
       const newItem = { id: menuItem.id, name: menuItem.name, price: menuItem.price, qty: 1, notes: '', noteOptions: menuItem.noteOptions }
-      setCart(c => [...c, newItem])
-      // Open edit modal for the newly added item (last index)
-      setTimeout(() => {
-        setEditingItem({ index: cart.length, notes: '' })
-      }, 0)
+      setEditingItem({ newItem, notes: '' })
       return
     }
     
@@ -203,7 +199,21 @@ export default function App() {
     setEditingItem(null)
   }
 
-  function changeView(v) {
+  fu
+    // If editing a new item (not yet in cart), add it now with the notes
+    if (editingItem.newItem) {
+      const itemWithNotes = { ...editingItem.newItem, notes: editingItem.notes }
+      setCart(c => {
+        const idx = c.findIndex(it => it.id === itemWithNotes.id && (it.notes||'') === (itemWithNotes.notes||''))
+        if (idx >= 0) {
+          return c.map((it,i) => i===idx ? { ...it, qty: it.qty + 1 } : it)
+        }
+        return [...c, itemWithNotes]
+      })
+    } else {
+      // Editing existing cart item
+      setCart(c => c.map((it, i) => i === editingItem.index ? { ...it, notes: editingItem.notes } : it))
+    }
     setView(v)
     setNavOpen(false)
   }
@@ -261,7 +271,7 @@ export default function App() {
               </div>
             ) : (
               <div className="panel">
-                <h2>Bitte Tisch wählen</h2>
+                editingItem.newItem || <h2>Bitte Tisch wählen</h2>
                 <div className="muted">Wähle zuerst einen Tisch, um Artikel zu sehen und zu bestellen.</div>
               </div>
             )}
