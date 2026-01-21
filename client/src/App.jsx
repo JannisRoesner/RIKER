@@ -195,11 +195,7 @@ export default function App() {
 
   function saveNotes() {
     if (editingItem === null) return
-    setCart(c => c.map((it, i) => i === editingItem.index ? { ...it, notes: editingItem.notes } : it))
-    setEditingItem(null)
-  }
-
-  fu
+    
     // If editing a new item (not yet in cart), add it now with the notes
     if (editingItem.newItem) {
       const itemWithNotes = { ...editingItem.newItem, notes: editingItem.notes }
@@ -214,6 +210,10 @@ export default function App() {
       // Editing existing cart item
       setCart(c => c.map((it, i) => i === editingItem.index ? { ...it, notes: editingItem.notes } : it))
     }
+    setEditingItem(null)
+  }
+
+  function changeView(v) {
     setView(v)
     setNavOpen(false)
   }
