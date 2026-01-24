@@ -184,8 +184,18 @@ async function start() {
 
   app.delete('/api/admin/items/:id', async (req, res) => {
     const id = req.params.id;
-    await db.run('DELETE FROM items WHERE id = ?', id);
-    res.json({ ok: true });
+    try {
+      const ref = await db.get('SELECT COUNT(*) as cnt FROM order_items WHERE item_id = ?', id);
+      if (ref && ref.cnt > 0) {
+        return res.status(409).json({ error: 'Item kann nicht gelöscht werden, da Bestellungen darauf verweisen', references: ref.cnt });
+      }
+
+      await db.run('DELETE FROM items WHERE id = ?', id);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('delete item error', err);
+      res.status(500).json({ error: 'internal' });
+    }
   });
 
   app.get('/api/admin/tables', async (req, res) => {
