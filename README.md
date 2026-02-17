@@ -6,24 +6,28 @@ Eine schlanke Web‑Kasse für Sitzungen: Bestellungen aufnehmen, Küche koordin
 
 ### Bestellen (mobil‑freundlich)
 - Tischauswahl mit Bestätigung, falls beim Wechsel ein gefüllter Warenkorb existiert
-- Artikel nach Kategorien, Menge und Notizen (Sonderwünsche)
+- Kellnername optional erfassbar
+- Artikel nach Kategorien gruppiert, Menge und Notizen (Sonderwünsche)
+- Vordefinierte Notizoptionen pro Artikel (z. B. „Ketchup, Mayo" für Pommes)
 - „Bestellung abschicken“: legt Order an, erzeugt Bon‑Datei und leert Tisch/Warenkorb
 
 ### Küche
-- Übersicht offener Bestellungen mit Auto‑Refresh (3 s)
-- Einzelne Bestellungen als „Erledigt“ markieren
+- Übersicht offener Bestellungen mit Auto‑Refresh (3 s)- Artikel nach Kategorien gruppiert für bessere Übersicht- Einzelne Bestellungen als „Erledigt“ markieren
 
 ### Service (Bezahlen)
 - Alle offenen Positionen eines Tisches — zusammengeführt über alle Bestellungen
 - Teilzahlungen: beliebige Einheiten auswählen; serverseitiges korrektes Splitten bei Teilmengen
 
 ### Admin
-- Stammdaten: Kategorien, Produkte, Tische
+- Stammdaten: Kategorien, Produkte (inkl. Notizoptionen), Tische
+- Tische: Einzeln oder als Bereich anlegen (z. B. „1-30")
+- Produkte: Excel-Export/Import für schnelle Bulk-Bearbeitung
 - Reports (Tagesumsatz bezahlt, Bestellungen, verkaufte Artikel) in separatem Fenster
 - „Kasse auf Null setzen“: löscht Bestellungen und lokale Bon‑Dateien (irreversibel)
 
 ### Drucken
 - Text‑Bons unter `prints/` mit Schema `order-<id>-<timestamp>.txt`
+- Support für Client-Software die einen Bon-Druck realisiert
 
 ### Echtzeit
 - Polling für Küchenansicht (3 s); keine externen Realtime‑Dienste notwendig
@@ -84,11 +88,13 @@ Hinweis: Im Container liefert Express das gebaute Frontend aus `server/public` a
 
 ## 📱 Verwendung
 1) Tisch wählen (oder anpassen). Bei gefülltem Warenkorb erscheint beim Wechsel eine Bestätigung.
-2) Artikel auswählen, Menge/Notizen setzen, in den Warenkorb legen.
-3) Bestellung abschicken → Bon‑Datei wird erzeugt, Küche sieht den Auftrag.
-4) In „Küche“ Bestellungen bearbeiten/abschließen.
-5) In „Service“ offene Einheiten auswählen und bezahlen (Teilzahlung möglich).
-6) In „Admin“ Stammdaten pflegen und Tages‑Reports öffnen.
+2) Optional: Kellnername eingeben (wird auf Bon gedruckt).
+3) Artikel auswählen, Menge/Notizen setzen, in den Warenkorb legen.
+   - Für Artikel mit vordefinierten Optionen (z. B. „Ketchup, Mayo" bei Pommes) können diese per Klick ausgewählt werden.
+4) Bestellung abschicken → Bon‑Datei wird erzeugt, Küche sieht den Auftrag.
+5) In „Küche" Bestellungen bearbeiten/abschließen.
+6) In „Service" offene Einheiten auswählen und bezahlen (Teilzahlung möglich).
+7) In „Admin" Stammdaten pflegen, Produkte per Excel importieren/exportieren und Tages‑Reports öffnen.
 
 ## 🏗️ Architektur
 
@@ -102,16 +108,34 @@ Hinweis: Im Container liefert Express das gebaute Frontend aus `server/public` a
 - Mobile‑first UI, einfache Styles
 
 ### API‑Endpunkte (Auswahl)
-- GET `/api/menu` — Kategorien mit Items
-- POST `/api/orders` — `{ tableNumber, items:[{id,qty,notes}] }`
-- GET `/api/orders?status=open|paid|complete`
+
+#### Menü & Bestellungen
+- GET `/api/menu` — Kategorien mit Items (inkl. `noteOptions` pro Artikel)
+- POST `/api/orders` — `{ tableNumber, waiter, items:[{id, qty, notes}] }`
+- GET `/api/orders?status=open|paid|complete` — Bestellungen filtern nach Status
 - POST `/api/orders/:id/pay` — Bestellung als bezahlt markieren
 - POST `/api/orders/:id/complete` — Bestellung als erledigt markieren
+
+#### Tisch-Service (Bezahlen)
 - GET `/api/tables/:number/items` — offene Einheiten eines Tisches (qty expandiert)
 - POST `/api/tables/:number/pay-items` — `{ itemIds:["<order_item_id>-<index>", ...] }`
-- Admin Stammdaten: `GET/POST/PUT/DELETE /api/admin/{categories|items|tables}`
-- Reports: `/api/admin/reports/{summary|orders|items}` mit optional `?date=YYYY-MM-DD`
-- Reset: POST `/api/admin/reset`
+
+#### Admin Stammdaten
+- GET/POST/PUT/DELETE `/api/admin/categories` — Kategorien verwalten
+- GET/POST/PUT/DELETE `/api/admin/items` — Produkte verwalten (inkl. `note_options`)
+- GET/POST/PUT/DELETE `/api/admin/tables` — Tische verwalten
+  - POST mit `range: "1-30"` legt mehrere Tische auf einmal an
+
+#### Admin Export/Import
+- GET `/api/admin/export-template` — Excel-Vorlage mit aktuellen Produkten herunterladen
+- POST `/api/admin/import-products` — Excel hochladen (multipart/form-data, field: `file`)
+
+#### Admin Reports
+- GET `/api/admin/reports/summary?date=YYYY-MM-DD` — Tagesumsatz (nur bezahlte Items)
+- GET `/api/admin/reports/summary-all?date=YYYY-MM-DD` — Gesamt-Umsatz (inkl. unbezahlt)
+- GET `/api/admin/reports/orders?date=YYYY-MM-DD` — Bestellungen für einen Tag
+- GET `/api/admin/reports/items?date=YYYY-MM-DD` — Verkaufte Artikel (gesamt + bezahlt)
+- POST `/api/admin/reset` — Kasse auf Null (löscht alle Bestellungen + Bons)
 
 ## 🎨 Design
 - Schlichtes, gut lesbares Layout
@@ -120,5 +144,6 @@ Hinweis: Im Container liefert Express das gebaute Frontend aus `server/public` a
 
 ## 📝 Changelog (Kurz)
 - 2025‑11: Docker Compose hinzugefügt; Tischwechsel‑Hinweis bereinigt (statt statisch → kontextuelle Bestätigung)
+- 2026‑02: Kellnernamen auf Bons; Notizoptionen für Artikel; Kategorien-Gruppierung in Menü/Küche; Excel-Import/Export für Produkte; Tisch-Bereichsanlage (z. B. „1-30")
 
 
