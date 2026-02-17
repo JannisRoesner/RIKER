@@ -140,9 +140,9 @@ async function start() {
     let rows;
     if (status) rows = await db.all('SELECT * FROM orders WHERE status = ? ORDER BY created_at DESC', status);
     else rows = await db.all('SELECT * FROM orders ORDER BY created_at DESC');
-    // attach items
+    // attach items with category info
     for (const o of rows) {
-      o.items = await db.all('SELECT oi.*, i.name, i.price FROM order_items oi JOIN items i ON oi.item_id = i.id WHERE oi.order_id = ?', o.id);
+      o.items = await db.all(`SELECT oi.*, i.name, i.price, i.category_id, c.name as category FROM order_items oi JOIN items i ON oi.item_id = i.id LEFT JOIN categories c ON i.category_id = c.id WHERE oi.order_id = ? ORDER BY c.name COLLATE NOCASE ASC, i.name COLLATE NOCASE ASC`, o.id);
     }
     res.json(rows);
   });
@@ -576,9 +576,9 @@ async function start() {
         ws_data.push(['Rotwein (glas)', 'Getränke', 4.50, '']);
         ws_data.push(['Brezelchen', 'Speisen', 3.00, '']);
         ws_data.push(['Brötchen', 'Speisen', 3.00, 'Mett, Salami, Schinken, Käse']);
-        ws_data.push(['Fleischwurst', 'Speisen', 4.00, 'Ketchup, Senf']);
-        ws_data.push(['Pommes', 'Speisen', 3.00, 'Ketchup, Mayo']);
-        ws_data.push(['Rindsowurst', 'Speisen', 4.00, 'Ketchup, Senf']);
+        ws_data.push(['Fleischwurst', 'Speisen', 4.00, 'Ketchup,Senf']);
+        ws_data.push(['Pommes', 'Speisen', 3.00, 'Ketchup,Mayo']);
+        ws_data.push(['Rindsowurst', 'Speisen', 4.00, 'Ketchup,Senf']);
       }
       
       // Add a few empty rows for new products

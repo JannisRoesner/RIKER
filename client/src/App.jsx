@@ -452,19 +452,36 @@ function Kitchen() {
   return (
     <div className="panel">
       <h2>Küchen-Tickets</h2>
-      {orders.map(o => (
-        <div key={o.id} className="ticket">
-          <div>Bestellung #{o.id} — {o.waiter ? `Kellner: ${o.waiter} — ` : ''}Tisch {o.table_number} — {o.total.toFixed(2)}€</div>
-          <ul>
-            {(o.items||[]).map(it => (
-              <li key={it.id}>
-                {it.qty}× {it.name} {it.notes ? <small>({it.notes})</small> : null}
-              </li>
+      {orders.map(o => {
+        // Group items by category
+        const grouped = {}
+        if (o.items && Array.isArray(o.items)) {
+          o.items.forEach(it => {
+            const catName = it.category || '— Sonstige —'
+            if (!grouped[catName]) grouped[catName] = []
+            grouped[catName].push(it)
+          })
+        }
+        const categories = Object.entries(grouped)
+        return (
+          <div key={o.id} className="ticket">
+            <div>Bestellung #{o.id} — {o.waiter ? `Kellner: ${o.waiter} — ` : ''}Tisch {o.table_number} — {o.total.toFixed(2)}€</div>
+            {categories.map(([catName, catItems]) => (
+              <div key={catName} style={{marginBottom: 12}}>
+                <div style={{fontWeight: 600, fontSize: 12, color: '#666', marginBottom: 6}}>{catName}</div>
+                <ul>
+                  {catItems && catItems.map(it => (
+                    <li key={it.id}>
+                      {it.qty}× {it.name} {it.notes ? <small>({it.notes})</small> : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
-          <button className="btn btn-success" onClick={() => markDone(o.id)}>Erledigt</button>
-        </div>
-      ))}
+            <button className="btn btn-success" onClick={() => markDone(o.id)}>Erledigt</button>
+          </div>
+        )
+      })}
     </div>
   )
 }
