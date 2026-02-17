@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS items (
 CREATE TABLE IF NOT EXISTS orders (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   table_number TEXT,
+  waiter TEXT,
   total REAL DEFAULT 0,
   status TEXT DEFAULT 'open',
   created_at TEXT

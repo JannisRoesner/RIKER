@@ -47,6 +47,17 @@ async function start() {
     console.warn('Migration check failed:', err.message || err);
   }
 
+  // Migration: ensure orders has 'waiter' column
+  try {
+    const cols = await db.all("PRAGMA table_info('orders')");
+    if (!cols.find(c => c.name === 'waiter')) {
+      await db.run('ALTER TABLE orders ADD COLUMN waiter TEXT');
+      console.log('Migration: added waiter column to orders');
+    }
+  } catch (err) {
+    console.warn('Migration check failed:', err.message || err);
+  }
+
   const app = express();
   app.use(cors());
   app.use(express.json());
@@ -78,7 +89,7 @@ async function start() {
 
   app.post('/api/orders', async (req, res) => {
     try {
-      const { tableNumber, items } = req.body;
+      const { tableNumber, items, waiter } = req.body;
       if (!tableNumber || !Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'tableNumber and items required' });
 
       // calculate total from items referencing menu price
@@ -89,7 +100,7 @@ async function start() {
         total += price * (it.qty || 1);
       }
 
-      const result = await db.run('INSERT INTO orders (table_number, total, status, created_at) VALUES (?,?,?,datetime("now"))', [tableNumber, total, 'open']);
+      const result = await db.run('INSERT INTO orders (table_number, waiter, total, status, created_at) VALUES (?,?,?,?,datetime("now"))', [tableNumber, waiter || null, total, 'open']);
       const orderId = result.lastID;
 
       const insertItem = await db.prepare('INSERT INTO order_items (order_id, item_id, qty, notes) VALUES (?,?,?,?)');
@@ -103,6 +114,7 @@ async function start() {
       const filename = `order-${orderId}-${ts}.txt`;
       const lines = [];
       lines.push(`Bestellung #${orderId}`);
+      if (waiter) lines.push(`Kellner: ${waiter}`);
       lines.push(`Tisch: ${tableNumber}`);
       lines.push('---');
       for (const it of items) {

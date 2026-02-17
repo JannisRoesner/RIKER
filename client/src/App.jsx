@@ -1,6 +1,44 @@
 import React, { useEffect, useState } from 'react'
 import logo from './bildmarke.png'
 
+function WaiterLoginModal({ onWaiterSet }) {
+  const [name, setName] = useState('')
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    if (name.trim()) {
+      localStorage.setItem('waiter', name.trim())
+      onWaiterSet(name.trim())
+    }
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <h3>Willkommen bei RIKER</h3>
+        <p className="muted">Bitte gib deinen Namen ein, um Bestellungen aufzugeben.</p>
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: 16 }}>
+            <label htmlFor="waiter-name">Dein Name</label>
+            <input
+              id="waiter-name"
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="z.B. Max"
+              autoFocus
+              style={{ width: '100%', padding: '8px 12px', fontSize: 16 }}
+            />
+          </div>
+          <button type="submit" className="btn btn-primary btn-block" disabled={!name.trim()}>
+            Bestätigen
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 function TablePicker({ tables, value, onChange }) {
   return (
     <div className="panel">
@@ -140,6 +178,8 @@ function Cart({ items, onRemove, onSubmit, onEditNotes, table }) {
 }
 
 export default function App() {
+  const [waiter, setWaiter] = useState(null)
+  const [showWaiterModal, setShowWaiterModal] = useState(false)
   const [table, setTable] = useState('')
   const [menu, setMenu] = useState([])
   const [cart, setCart] = useState([])
@@ -149,9 +189,26 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false)
 
   useEffect(() => {
+    // Load waiter from localStorage
+    const savedWaiter = localStorage.getItem('waiter')
+    if (savedWaiter) {
+      setWaiter(savedWaiter)
+    } else {
+      setShowWaiterModal(true)
+    }
+
     fetch('/api/menu').then(r => r.json()).then(setMenu)
     fetch('/api/admin/tables').then(r=>r.json()).then(ts => setTables(ts))
   }, [])
+
+  function handleWaiterSet(name) {
+    setWaiter(name)
+    setShowWaiterModal(false)
+  }
+
+  function changeWaiter() {
+    setShowWaiterModal(true)
+  }
 
   function changeTable(newTable) {
     if (newTable === table) return;
@@ -226,7 +283,7 @@ export default function App() {
       if (keyIndex >= 0) { grouped[keyIndex].qty += i.qty }
       else { grouped.push({ id: i.id, qty: i.qty, notes: i.notes }) }
     }
-    const body = { tableNumber: table, items: grouped }
+    const body = { tableNumber: table, items: grouped, waiter }
     const res = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     const data = await res.json()
     alert('Bestellung gesendet — Nr. ' + data.id + '\nSumme: ' + data.total.toFixed(2) + '€')
@@ -249,9 +306,18 @@ export default function App() {
               </div>
             </div>
           </div>
-          <button className="hamburger" aria-label="Menü" onClick={()=>setNavOpen(o=>!o)}>
-            <span></span><span></span><span></span>
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {waiter && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 16, whiteSpace: 'nowrap' }}>
+                <span className="muted" style={{ fontSize: 12 }}>Kellner:</span>
+                <strong>{waiter}</strong>
+                <button className="btn btn-ghost btn-sm" onClick={changeWaiter} title="Namen ändern">✏️</button>
+              </div>
+            )}
+            <button className="hamburger" aria-label="Menü" onClick={()=>setNavOpen(o=>!o)}>
+              <span></span><span></span><span></span>
+            </button>
+          </div>
           <nav className={`tabs ${navOpen ? 'open' : ''}`} role="navigation" aria-label="Hauptnavigation">
             <button className={`tab ${view==='order'?'active':''}`} onClick={() => changeView('order')}>Bestellen</button>
             <button className={`tab ${view==='service'?'active':''}`} onClick={() => changeView('service')}>Bezahlen</button>
@@ -282,6 +348,10 @@ export default function App() {
         {view === 'service' && <Service />}
         {view === 'admin' && <Admin onRefreshMenu={() => fetch('/api/menu').then(r=>r.json()).then(setMenu)} />}
       </main>
+
+      {showWaiterModal && (
+        <WaiterLoginModal onWaiterSet={handleWaiterSet} />
+      )}
 
       {editingItem && (
         <EditNotesModal
@@ -384,7 +454,7 @@ function Kitchen() {
       <h2>Küchen-Tickets</h2>
       {orders.map(o => (
         <div key={o.id} className="ticket">
-          <div>Bestellung #{o.id} — Tisch {o.table_number} — {o.total.toFixed(2)}€</div>
+          <div>Bestellung #{o.id} — {o.waiter ? `Kellner: ${o.waiter} — ` : ''}Tisch {o.table_number} — {o.total.toFixed(2)}€</div>
           <ul>
             {(o.items||[]).map(it => (
               <li key={it.id}>
