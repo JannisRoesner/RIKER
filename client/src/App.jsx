@@ -39,6 +39,68 @@ function WaiterLoginModal({ onWaiterSet }) {
   )
 }
 
+function LoginDialog({ onSuccess }) {
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'Login fehlgeschlagen')
+        setPassword('')
+      } else {
+        onSuccess?.()
+      }
+    } catch {
+      setError('Login fehlgeschlagen')
+      setPassword('')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="login-dialog-overlay">
+      <div className="login-dialog">
+        <h2>Anmeldung erforderlich</h2>
+        <p>Bitte geben Sie das Passwort ein, um fortzufahren.</p>
+
+        <form onSubmit={handleSubmit}>
+          <div className="login-form-group">
+            <label htmlFor="password">Passwort:</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoFocus
+              disabled={loading}
+              placeholder="Passwort eingeben"
+            />
+          </div>
+
+          {error && <div className="login-error">{error}</div>}
+
+          <button type="submit" disabled={loading || !password}>
+            {loading ? 'Anmelden...' : 'Anmelden'}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 function TablePicker({ tables, value, onChange }) {
   return (
     <div className="panel">
@@ -187,6 +249,7 @@ export default function App() {
   const [view, setView] = useState('order')
   const [tables, setTables] = useState([])
   const [navOpen, setNavOpen] = useState(false)
+  const [adminAuthenticated, setAdminAuthenticated] = useState(false)
 
   useEffect(() => {
     // Load waiter from localStorage
@@ -198,7 +261,8 @@ export default function App() {
     }
 
     fetch('/api/menu').then(r => r.json()).then(setMenu)
-    fetch('/api/admin/tables').then(r=>r.json()).then(ts => setTables(ts))
+    fetch('/api/tables').then(r=>r.json()).then(ts => setTables(ts))
+    fetch('/api/auth/status').then(r => r.json()).then(data => setAdminAuthenticated(!!data.authenticated)).catch(() => setAdminAuthenticated(false))
   }, [])
 
   function handleWaiterSet(name) {
@@ -309,7 +373,7 @@ export default function App() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {waiter && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 16, whiteSpace: 'nowrap' }}>
-                <span className="muted" style={{ fontSize: 12 }}>Kellner:</span>
+                <span className="muted" style={{ fontSize: 12 }}>Bedienung:</span>
                 <strong>{waiter}</strong>
                 <button className="btn btn-ghost btn-sm" onClick={changeWaiter} title="Namen ändern">✏️</button>
               </div>
@@ -346,7 +410,9 @@ export default function App() {
 
         {view === 'kitchen' && <Kitchen />}
         {view === 'service' && <Service />}
-        {view === 'admin' && <Admin onRefreshMenu={() => fetch('/api/menu').then(r=>r.json()).then(setMenu)} />}
+        {view === 'admin' && (adminAuthenticated
+          ? <Admin onRefreshMenu={() => fetch('/api/menu').then(r=>r.json()).then(setMenu)} />
+          : <LoginDialog onSuccess={() => setAdminAuthenticated(true)} />)}
       </main>
 
       {showWaiterModal && (
@@ -465,7 +531,7 @@ function Kitchen() {
         const categories = Object.entries(grouped)
         return (
           <div key={o.id} className="ticket">
-            <div>Bestellung #{o.id} — {o.waiter ? `Kellner: ${o.waiter} — ` : ''}Tisch {o.table_number} — {o.total.toFixed(2)}€</div>
+            <div>Bestellung #{o.id} — {o.waiter ? `Bedienung: ${o.waiter} — ` : ''}Tisch {o.table_number} — {o.total.toFixed(2)}€</div>
             {categories.map(([catName, catItems]) => (
               <div key={catName} style={{marginBottom: 12}}>
                 <div style={{fontWeight: 600, fontSize: 12, color: '#666', marginBottom: 6}}>{catName}</div>
@@ -493,7 +559,7 @@ function Service() {
   const [selected, setSelected] = useState(new Set())
 
   useEffect(() => {
-    fetch('/api/admin/tables').then(r=>r.json()).then(setTables)
+    fetch('/api/tables').then(r=>r.json()).then(setTables)
   }, [])
 
   useEffect(() => {
@@ -566,6 +632,8 @@ function Admin({ onRefreshMenu }) {
   const [showReset, setShowReset] = useState(false)
   const [editingItemOptions, setEditingItemOptions] = useState(null)
   const [showImport, setShowImport] = useState(false)
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false)
+  const [showExportDialog, setShowExportDialog] = useState(false)
 
   useEffect(() => { load(); }, [])
   function load() {
@@ -673,15 +741,15 @@ function Admin({ onRefreshMenu }) {
   async function delCategory(id) { if (!confirm('löschen?')) return; await fetch('/api/admin/categories/'+id, { method: 'DELETE' }); load(); }
   async function delTable(id) { if (!confirm('löschen?')) return; await fetch('/api/admin/tables/'+id, { method: 'DELETE' }); load(); }
 
-  async function downloadTemplate() {
+  async function downloadProducts(mode) {
     try {
-      const res = await fetch('/api/admin/export-template')
+      const res = await fetch(`/api/admin/export-products?mode=${encodeURIComponent(mode)}`)
       if (!res.ok) throw new Error('Download fehlgeschlagen')
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = 'produkte-template.xlsx'
+      a.download = mode === 'current' ? 'produkte-export.xlsx' : 'produkte-template.xlsx'
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -701,6 +769,7 @@ function Admin({ onRefreshMenu }) {
             <button className="btn btn-secondary" onClick={openOrdersWindow}>Bestellungen öffnen</button>
             <button className="btn btn-secondary" onClick={openRevenueAllWindow}>Umsatz gesamt (inkl. unbezahlte)</button>
             <button className="btn btn-secondary" onClick={openItemsWindow}>Verkaufte Artikel öffnen</button>
+            <button className="btn btn-secondary" onClick={() => setShowPasswordDialog(true)}>Passwort ändern</button>
             <button className="btn btn-danger" onClick={()=>setShowReset(true)}>Kasse auf Null setzen</button>
           </div>
         </div>
@@ -717,10 +786,17 @@ function Admin({ onRefreshMenu }) {
       <div className="panel span-2">
         <h3>Produkte</h3>
         <div style={{marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap'}}>
-          <button className="btn btn-secondary" onClick={downloadTemplate}>Vorlage herunterladen</button>
+          <button className="btn btn-secondary" onClick={() => setShowExportDialog(true)}>Export herunterladen</button>
           <button className="btn btn-secondary" onClick={() => setShowImport(true)}>Preisliste hochladen</button>
         </div>
         <ul>{items.map(it => <li key={it.id}><div style={{flex:1}}>{it.name} — {it.category||'—'} — {Number(it.price).toFixed(2)}€{it.note_options ? <div className="muted" style={{fontSize:12}}>Optionen: {it.note_options}</div> : null}</div><div style={{display:'flex',gap:6}}><button className="btn btn-secondary btn-sm" onClick={async()=>{
+          const val = prompt('Neuer Name für '+it.name, String(it.name))
+          if (val===null) return
+          const name = String(val).trim()
+          if (!name) { alert('Ungültiger Name'); return }
+          await fetch('/api/admin/items/'+it.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ category_id: it.category_id || null, name, price: it.price, available: it.available?1:0, note_options: it.note_options || null }) })
+          load(); onRefreshMenu && onRefreshMenu()
+        }}>Name ändern</button><button className="btn btn-secondary btn-sm" onClick={async()=>{
           const val = prompt('Neuer Preis für '+it.name, String(it.price))
           if (val===null) return
           const price = parseFloat(String(val).replace(',','.'))
@@ -792,6 +868,114 @@ function Admin({ onRefreshMenu }) {
           }}
         />
       )}
+      {showPasswordDialog && (
+        <PasswordChangeDialog onClose={() => setShowPasswordDialog(false)} />
+      )}
+      {showExportDialog && (
+        <ExportProductsDialog
+          onClose={() => setShowExportDialog(false)}
+          onDownload={async (mode) => {
+            await downloadProducts(mode)
+            setShowExportDialog(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function PasswordChangeDialog({ onClose }) {
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
+
+    if (newPassword.length < 4) {
+      setError('Neues Passwort muss mindestens 4 Zeichen lang sein')
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError('Neue Passwörter stimmen nicht überein')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'Passwort-Änderung fehlgeschlagen')
+      } else {
+        setSuccess('Passwort erfolgreich geändert')
+        setCurrentPassword('')
+        setNewPassword('')
+        setConfirmPassword('')
+        setTimeout(() => onClose(), 1200)
+      }
+    } catch {
+      setError('Passwort-Änderung fehlgeschlagen')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>Passwort ändern</h3>
+        <form onSubmit={handleSubmit}>
+          <div className="space-y-8">
+            <div>
+              <label htmlFor="currentPassword">Aktuelles Passwort</label>
+              <input id="currentPassword" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} disabled={loading} required autoFocus />
+            </div>
+            <div>
+              <label htmlFor="newPassword">Neues Passwort</label>
+              <input id="newPassword" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} disabled={loading} required minLength={4} />
+            </div>
+            <div>
+              <label htmlFor="confirmPassword">Neues Passwort bestätigen</label>
+              <input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={loading} required minLength={4} />
+            </div>
+          </div>
+          {error && <div style={{marginTop:10, color:'#ff6b6b'}}>{error}</div>}
+          {success && <div style={{marginTop:10, color:'#81c784'}}>{success}</div>}
+          <div className="actions">
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>Abbrechen</button>
+            <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Ändern...' : 'Passwort ändern'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function ExportProductsDialog({ onClose, onDownload }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <h3>Produkte exportieren</h3>
+        <p className="muted">Wähle aus, ob du eine Vorlage oder die aktuell eingestellten Artikel herunterladen möchtest.</p>
+        <div className="actions">
+          <button className="btn btn-secondary" onClick={() => onDownload('template')}>Vorlage herunterladen</button>
+          <button className="btn btn-secondary" onClick={() => onDownload('current')}>Aktuelle Artikel exportieren</button>
+        </div>
+        <div className="actions">
+          <button className="btn btn-ghost" onClick={onClose}>Abbrechen</button>
+        </div>
+      </div>
     </div>
   )
 }

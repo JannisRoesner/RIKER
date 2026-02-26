@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
+const session = require('express-session');
 const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
 const multer = require('multer');
@@ -61,6 +62,30 @@ async function start() {
   const app = express();
   app.use(cors());
   app.use(express.json());
+  app.use(session({
+    secret: process.env.SESSION_SECRET || 'riker-admin-session-secret',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge: 1000 * 60 * 60 * 24 * 7
+    }
+  }));
+
+  let adminPassword = process.env.ADMIN_PASSWORD || 'admin';
+  const passwordSetting = await db.get('SELECT value FROM app_settings WHERE key = ?', 'admin_password');
+  if (passwordSetting && typeof passwordSetting.value === 'string' && passwordSetting.value.length > 0) {
+    adminPassword = passwordSetting.value;
+  } else {
+    await db.run(
+      'INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      ['admin_password', adminPassword]
+    );
+  }
+  if (!process.env.ADMIN_PASSWORD && adminPassword === 'admin') {
+    console.warn('⚠️  WARNUNG: Kein ADMIN_PASSWORD gesetzt. Standard-Passwort "admin" wird verwendet.');
+  }
   
   // Configure multer for file uploads (max 10MB)
   const upload = multer({ 
@@ -73,6 +98,56 @@ async function start() {
   if (fs.existsSync(publicDir)) app.use(express.static(publicDir));
 
   // API
+  app.post('/api/auth/login', (req, res) => {
+    const { password } = req.body || {};
+    if (!password || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Passwort erforderlich' });
+    }
+    if (password !== adminPassword) {
+      return res.status(401).json({ error: 'Falsches Passwort' });
+    }
+    req.session.authenticated = true;
+    req.session.save((err) => {
+      if (err) return res.status(500).json({ error: 'Session-Fehler' });
+      res.json({ success: true });
+    });
+  });
+
+  app.post('/api/auth/logout', (req, res) => {
+    req.session.destroy((err) => {
+      if (err) return res.status(500).json({ error: 'Logout fehlgeschlagen' });
+      res.json({ success: true });
+    });
+  });
+
+  app.get('/api/auth/status', (req, res) => {
+    res.json({ authenticated: !!req.session.authenticated });
+  });
+
+  app.post('/api/auth/change-password', async (req, res) => {
+    if (!req.session || !req.session.authenticated) {
+      return res.status(401).json({ error: 'Nicht angemeldet' });
+    }
+
+    const { currentPassword, newPassword } = req.body || {};
+
+    if (!currentPassword || !newPassword || typeof newPassword !== 'string' || newPassword.length < 4) {
+      return res.status(400).json({ error: 'Ungültige Passwort-Daten (mindestens 4 Zeichen erforderlich)' });
+    }
+
+    if (currentPassword !== adminPassword) {
+      return res.status(401).json({ error: 'Aktuelles Passwort ist falsch' });
+    }
+
+    adminPassword = newPassword;
+    await db.run(
+      'INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      ['admin_password', newPassword]
+    );
+
+    res.json({ success: true });
+  });
+
   app.get('/api/menu', async (req, res) => {
     const items = await db.all(`SELECT i.id, i.name, i.price, i.available, i.note_options, c.id as category_id, c.name as category
       FROM items i JOIN categories c ON i.category_id = c.id
@@ -114,7 +189,7 @@ async function start() {
       const filename = `order-${orderId}-${ts}.txt`;
       const lines = [];
       lines.push(`Bestellung #${orderId}`);
-      if (waiter) lines.push(`Kellner: ${waiter}`);
+      if (waiter) lines.push(`Bedienung: ${waiter}`);
       lines.push(`Tisch: ${tableNumber}`);
       lines.push('---');
       for (const it of items) {
@@ -146,6 +221,25 @@ async function start() {
     }
     res.json(rows);
   });
+
+  // Public endpoint for table selection (Bestellen + Bezahlen)
+  app.get('/api/tables', async (req, res) => {
+    try {
+      const rows = await db.all('SELECT * FROM tables ORDER BY CAST(number AS INTEGER) ASC, number ASC');
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: 'db error' });
+    }
+  });
+
+  function requireAdminAuth(req, res, next) {
+    if (!req.session || !req.session.authenticated) {
+      return res.status(401).json({ error: 'Nicht angemeldet' });
+    }
+    next();
+  }
+
+  app.use('/api/admin', requireAdminAuth);
 
   // Admin endpoints: categories, items, tables
   app.get('/api/admin/categories', async (req, res) => {
@@ -539,34 +633,29 @@ async function start() {
     }
   });
 
-  // Admin: Export product template as Excel
-  app.get('/api/admin/export-template', async (req, res) => {
+  async function exportProducts(req, res, forceMode) {
     try {
-      // Get current categories and products for template
-      const categories = await db.all('SELECT * FROM categories ORDER BY name COLLATE NOCASE ASC');
+      const mode = forceMode || (req.query.mode === 'current' ? 'current' : 'template');
       const items = await db.all(`
         SELECT i.*, c.name as category
         FROM items i LEFT JOIN categories c ON i.category_id = c.id
         ORDER BY c.name COLLATE NOCASE ASC, i.name COLLATE NOCASE ASC
       `);
       
-      // Create workbook with template sheet
       const ws_data = [
         ['Produktname', 'Kategorie', 'Preis', 'Optionen'],
       ];
       
-      // Add existing products as examples
-      items.forEach(item => {
-        ws_data.push([
-          item.name,
-          item.category || '',
-          item.price,
-          item.note_options || ''
-        ]);
-      });
-      
-      // Add example template rows if no data exists
-      if (items.length === 0) {
+      if (mode === 'current') {
+        items.forEach(item => {
+          ws_data.push([
+            item.name,
+            item.category || '',
+            item.price,
+            item.note_options || ''
+          ]);
+        });
+      } else {
         ws_data.push(['A-Sauer', 'Getränke', 3.00, '']);
         ws_data.push(['A-Süß', 'Getränke', 3.00, '']);
         ws_data.push(['Aperol', 'Getränke', 7.50, '']);
@@ -579,11 +668,9 @@ async function start() {
         ws_data.push(['Fleischwurst', 'Speisen', 4.00, 'Ketchup,Senf']);
         ws_data.push(['Pommes', 'Speisen', 3.00, 'Ketchup,Mayo']);
         ws_data.push(['Rindsowurst', 'Speisen', 4.00, 'Ketchup,Senf']);
-      }
-      
-      // Add a few empty rows for new products
-      for (let i = 0; i < 5; i++) {
-        ws_data.push(['', '', '', '']);
+        for (let i = 0; i < 5; i++) {
+          ws_data.push(['', '', '', '']);
+        }
       }
       
       const ws = XLSX.utils.aoa_to_sheet(ws_data);
@@ -640,9 +727,9 @@ async function start() {
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Produkte');
       
-      // Send as file download
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', 'attachment; filename=produkte-template.xlsx');
+      const filename = mode === 'current' ? 'produkte-export.xlsx' : 'produkte-template.xlsx';
+      res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
       
       const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });
       res.send(buffer);
@@ -650,6 +737,14 @@ async function start() {
       console.error('Export error:', err);
       res.status(500).json({ error: err.message || 'Export failed' });
     }
+  }
+
+  // Admin: Export products as Excel (mode=template|current)
+  app.get('/api/admin/export-products', exportProducts);
+
+  // Backward-compatible endpoint for template export
+  app.get('/api/admin/export-template', async (req, res) => {
+    await exportProducts(req, res, 'template');
   });
 
   // Admin: Import products from Excel

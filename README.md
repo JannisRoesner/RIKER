@@ -24,6 +24,7 @@ Eine schlanke Web‑Kasse für Sitzungen: Bestellungen aufnehmen, Küche koordin
 - Produkte: Excel-Export/Import für schnelle Bulk-Bearbeitung
 - Reports (Tagesumsatz bezahlt, Bestellungen, verkaufte Artikel) in separatem Fenster
 - „Kasse auf Null setzen“: löscht Bestellungen und lokale Bon‑Dateien (irreversibel)
+- Passwortschutz: Admin-Bereich erfordert Anmeldung per `ADMIN_PASSWORD`
 
 ### Drucken
 - Text‑Bons unter `prints/` mit Schema `order-<id>-<timestamp>.txt`
@@ -49,6 +50,12 @@ docker compose up -d --build
 
 Anwendung öffnen: http://localhost:3000
 
+Optional Admin-Passwort setzen (empfohlen):
+```powershell
+$env:ADMIN_PASSWORD="dein-sicheres-passwort"
+docker compose up -d --build
+```
+
 Optionale Initialdaten (Beispielmenü/Tische):
 ```powershell
 # im laufenden Container
@@ -72,6 +79,7 @@ Server starten:
 ```powershell
 cd server
 npm install
+$env:ADMIN_PASSWORD="dein-sicheres-passwort"
 npm run start
 # http://localhost:3000
 ```
@@ -117,8 +125,15 @@ Hinweis: Im Container liefert Express das gebaute Frontend aus `server/public` a
 - POST `/api/orders/:id/complete` — Bestellung als erledigt markieren
 
 #### Tisch-Service (Bezahlen)
+- GET `/api/tables` — verfügbare Tische (öffentlich)
 - GET `/api/tables/:number/items` — offene Einheiten eines Tisches (qty expandiert)
 - POST `/api/tables/:number/pay-items` — `{ itemIds:["<order_item_id>-<index>", ...] }`
+
+#### Authentifizierung (nur Admin)
+- POST `/api/auth/login` — `{ password }` setzt Admin-Session
+- POST `/api/auth/logout` — Admin-Session beenden
+- GET `/api/auth/status` — `{ authenticated: boolean }`
+- POST `/api/auth/change-password` — `{ currentPassword, newPassword }` Passwort ändern
 
 #### Admin Stammdaten
 - GET/POST/PUT/DELETE `/api/admin/categories` — Kategorien verwalten
@@ -127,7 +142,8 @@ Hinweis: Im Container liefert Express das gebaute Frontend aus `server/public` a
   - POST mit `range: "1-30"` legt mehrere Tische auf einmal an
 
 #### Admin Export/Import
-- GET `/api/admin/export-template` — Excel-Vorlage mit aktuellen Produkten herunterladen
+- GET `/api/admin/export-products?mode=template|current` — Excel als Vorlage oder mit aktuellen Produkten herunterladen
+- GET `/api/admin/export-template` — Legacy-Endpunkt für Vorlagen-Download
 - POST `/api/admin/import-products` — Excel hochladen (multipart/form-data, field: `file`)
 
 #### Admin Reports
