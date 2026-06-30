@@ -7,9 +7,12 @@ COPY client/ ./client/
 
 RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/* || true
 
-# Install server deps
+# Install server deps.
+# Build sqlite3 from source so its native binding links against this image's
+# glibc. The published prebuilt binaries require GLIBC_2.38, which the
+# node:22-slim (Debian Bookworm, glibc 2.36) runtime does not provide.
 WORKDIR /app/server
-RUN npm install --production
+RUN npm install --production --build-from-source=sqlite3
 
 # Install and build client
 WORKDIR /app/client
