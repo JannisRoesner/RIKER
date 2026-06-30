@@ -1,0 +1,8 @@
+Bestellung #8
+*** GASTBESTELLUNG ***
+GAST: SmokeTest
+Tisch: 1
+---
+1 x A-Sauer (3 je) 
+---
+Summe: 3.00€
