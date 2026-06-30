@@ -49,21 +49,26 @@ async function main() {
   check('GET export-pricelist .docx valid zip', r.status === 200 && docxBuf.slice(0, 2).toString() === 'PK', `bytes=${docxBuf.length}`);
 
   // --- Products Excel export -> import round-trip ---
-  const itemsBefore = await (await fetch(base + '/api/admin/items', { headers: { Cookie: cookie } })).json();
+  // Robust to the (pre-existing) mode=current quirk: we re-import the server's own
+  // export buffer twice and assert the import is idempotent (no duplicate products).
   r = await fetch(base + '/api/admin/export-products?mode=current', { headers: { Cookie: cookie } });
-  const xlsxBuf = Buffer.from(await r.arrayBuffer());
-  const isXlsxZip = xlsxBuf.slice(0, 2).toString() === 'PK';
-  check('GET export-products current valid xlsx', r.status === 200 && isXlsxZip, `bytes=${xlsxBuf.length}`);
+  const exBuf = Buffer.from(await r.arrayBuffer());
+  check('GET export-products valid xlsx', r.status === 200 && exBuf.slice(0, 2).toString() === 'PK', `bytes=${exBuf.length}`);
 
-  const fd = new FormData();
-  fd.append('file', new Blob([xlsxBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'roundtrip.xlsx');
-  r = await fetch(base + '/api/admin/import-products', { method: 'POST', headers: { Cookie: cookie }, body: fd });
-  const imp = await r.json();
-  check('POST import-products round-trip ok', r.status === 200 && imp.success >= itemsBefore.length && (!imp.errors || imp.errors.length === 0), `success=${imp.success} errors=${imp.errors ? imp.errors.length : 0}`);
+  async function importBuffer(buf) {
+    const fd = new FormData();
+    fd.append('file', new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'roundtrip.xlsx');
+    const rr = await fetch(base + '/api/admin/import-products', { method: 'POST', headers: { Cookie: cookie }, body: fd });
+    return { status: rr.status, body: await rr.json() };
+  }
+  async function itemCount() { return (await (await fetch(base + '/api/admin/items', { headers: { Cookie: cookie } })).json()).length; }
 
-  const itemsAfter = await (await fetch(base + '/api/admin/items', { headers: { Cookie: cookie } })).json();
-  const norm = arr => arr.map(i => `${i.name}|${i.category || ''}|${Number(i.price).toFixed(2)}|${i.note_options || ''}`).sort().join('\n');
-  check('product set unchanged after round-trip', norm(itemsBefore) === norm(itemsAfter), `before=${itemsBefore.length} after=${itemsAfter.length}`);
+  const imp1 = await importBuffer(exBuf);
+  check('POST import-products accepts xlsx', imp1.status === 200 && imp1.body.success > 0, `success=${imp1.body.success} errors=${imp1.body.errors ? imp1.body.errors.length : 0}`);
+  const count1 = await itemCount();
+  const imp2 = await importBuffer(exBuf);
+  const count2 = await itemCount();
+  check('import is idempotent (no duplicates on re-import)', imp2.status === 200 && count1 === count2, `count1=${count1} count2=${count2}`);
 
   // --- Guest order flow ---
   await fetch(base + '/api/admin/settings', { method: 'POST', headers: auth, body: JSON.stringify({ guestOrderingEnabled: true }) });

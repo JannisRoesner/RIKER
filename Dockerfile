@@ -1,4 +1,4 @@
-FROM node:18-slim AS build
+FROM node:22-slim AS build
 WORKDIR /app
 
 # Copy entire server and client directories so build can access source files
@@ -16,7 +16,7 @@ WORKDIR /app/client
 RUN npm install
 RUN npm run build
 
-FROM node:18-slim
+FROM node:22-slim
 WORKDIR /app
 
 # Copy server

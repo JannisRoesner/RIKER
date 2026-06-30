@@ -6,7 +6,7 @@ const session = require('express-session');
 const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
 const multer = require('multer');
-const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 const {
   Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel,
   Header, ImageRun, TabStopType, TabStopPosition, LeaderType,
@@ -20,6 +20,44 @@ const PRINTS_DIR = path.join(__dirname, '..', 'prints');
 async function ensureDirs() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(PRINTS_DIR)) fs.mkdirSync(PRINTS_DIR, { recursive: true });
+}
+
+// Read an ExcelJS cell as plain text (handles rich text and formula results)
+function cellText(cell) {
+  const v = cell ? cell.value : null;
+  if (v == null) return '';
+  if (typeof v === 'object') {
+    if (typeof v.text === 'string') return v.text;
+    if (Array.isArray(v.richText)) return v.richText.map(t => t.text).join('');
+    if (v.result != null) return String(v.result);
+    if (v instanceof Date) return v.toISOString();
+    return '';
+  }
+  return String(v);
+}
+
+// Minimal CSV line parser supporting quoted fields and escaped quotes
+function parseCsvLine(line) {
+  const out = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else inQuotes = false;
+      } else cur += ch;
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',' || ch === ';') {
+      out.push(cur); cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur);
+  return out;
 }
 
 async function start() {
@@ -774,103 +812,77 @@ async function start() {
   async function exportProducts(req, res, forceMode) {
     try {
       const mode = forceMode || (req.query.mode === 'current' ? 'current' : 'template');
-      const items = await db.all(`
-        SELECT i.*, c.name as category
-        FROM items i LEFT JOIN categories c ON i.category_id = c.id
-        ORDER BY c.name COLLATE NOCASE ASC, i.name COLLATE NOCASE ASC
-      `);
-      
-      const ws_data = [
-        ['Produktname', 'Kategorie', 'Preis', 'Optionen'],
-      ];
-      
+
+      // Rows as [name, category, price, options]
+      let dataRows;
       if (mode === 'current') {
-        items.forEach(item => {
-          ws_data.push([
-            item.name,
-            item.category || '',
-            item.price,
-            item.note_options || ''
-          ]);
-        });
+        const items = await db.all(`
+          SELECT i.*, c.name as category
+          FROM items i LEFT JOIN categories c ON i.category_id = c.id
+          ORDER BY c.name COLLATE NOCASE ASC, i.name COLLATE NOCASE ASC
+        `);
+        dataRows = items.map(item => [item.name, item.category || '', item.price, item.note_options || '']);
       } else {
-        ws_data.push(['A-Sauer', 'Getränke', 3.00, '']);
-        ws_data.push(['A-Süß', 'Getränke', 3.00, '']);
-        ws_data.push(['Aperol', 'Getränke', 7.50, '']);
-        ws_data.push(['Apfelschorle', 'Getränke', 2.50, '']);
-        ws_data.push(['Cola', 'Getränke', 2.50, '']);
-        ws_data.push(['Rotwein (Flasche)', 'Getränke', 15.00, '']);
-        ws_data.push(['Rotwein (glas)', 'Getränke', 4.50, '']);
-        ws_data.push(['Brezelchen', 'Speisen', 3.00, '']);
-        ws_data.push(['Brötchen', 'Speisen', 3.00, 'Mett, Salami, Schinken, Käse']);
-        ws_data.push(['Fleischwurst', 'Speisen', 4.00, 'Ketchup,Senf']);
-        ws_data.push(['Pommes', 'Speisen', 3.00, 'Ketchup,Mayo']);
-        ws_data.push(['Rindsowurst', 'Speisen', 4.00, 'Ketchup,Senf']);
-        for (let i = 0; i < 5; i++) {
-          ws_data.push(['', '', '', '']);
-        }
+        dataRows = [
+          ['A-Sauer', 'Getränke', 3.00, ''],
+          ['A-Süß', 'Getränke', 3.00, ''],
+          ['Aperol', 'Getränke', 7.50, ''],
+          ['Apfelschorle', 'Getränke', 2.50, ''],
+          ['Cola', 'Getränke', 2.50, ''],
+          ['Rotwein (Flasche)', 'Getränke', 15.00, ''],
+          ['Rotwein (glas)', 'Getränke', 4.50, ''],
+          ['Brezelchen', 'Speisen', 3.00, ''],
+          ['Brötchen', 'Speisen', 3.00, 'Mett, Salami, Schinken, Käse'],
+          ['Fleischwurst', 'Speisen', 4.00, 'Ketchup,Senf'],
+          ['Pommes', 'Speisen', 3.00, 'Ketchup,Mayo'],
+          ['Rindsowurst', 'Speisen', 4.00, 'Ketchup,Senf']
+        ];
+        for (let i = 0; i < 5; i++) dataRows.push(['', '', '', '']);
       }
-      
-      const ws = XLSX.utils.aoa_to_sheet(ws_data);
-      
-      // Format header row (bold, background)
-      const headerStyle = {
-        font: { bold: true, color: { rgb: 'FFFFFF' } },
-        fill: { fgColor: { rgb: '1F4E78' } },
-        alignment: { horizontal: 'center', vertical: 'center' },
-        border: {
-          top: { style: 'thin', color: { rgb: '000000' } },
-          bottom: { style: 'thin', color: { rgb: '000000' } },
-          left: { style: 'thin', color: { rgb: '000000' } },
-          right: { style: 'thin', color: { rgb: '000000' } }
-        }
-      };
-      
-      // Apply header style to first row
-      for (let col = 0; col < 4; col++) {
-        const cellRef = XLSX.utils.encode_cell({ r: 0, c: col });
-        ws[cellRef].s = headerStyle;
-      }
-      
-      // Format data rows with borders and alignment
-      for (let row = 1; row < ws_data.length; row++) {
-        for (let col = 0; col < 4; col++) {
-          const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
-          if (ws[cellRef]) {
-            ws[cellRef].s = {
-              alignment: { horizontal: col === 0 ? 'left' : 'center', vertical: 'center', wrapText: true },
-              border: {
-                top: { style: 'thin', color: { rgb: 'CCCCCC' } },
-                bottom: { style: 'thin', color: { rgb: 'CCCCCC' } },
-                left: { style: 'thin', color: { rgb: 'CCCCCC' } },
-                right: { style: 'thin', color: { rgb: 'CCCCCC' } }
-              },
-              numFmt: col === 2 ? '0.00' : '@'  // Format price column as decimal
-            };
-          }
-        }
-      }
-      
-      // Set column widths
-      ws['!cols'] = [
-        { wch: 30 },  // Produktname
-        { wch: 15 },  // Kategorie
-        { wch: 10 },  // Preis
-        { wch: 40 }   // Optionen
+
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Produkte', { views: [{ state: 'frozen', ySplit: 1 }] });
+      ws.columns = [
+        { header: 'Produktname', key: 'name', width: 30 },
+        { header: 'Kategorie', key: 'category', width: 15 },
+        { header: 'Preis', key: 'price', width: 10 },
+        { header: 'Optionen', key: 'options', width: 40 }
       ];
-      
-      // Freeze header row
-      ws['!freeze'] = { xSplit: 0, ySplit: 1 };
-      
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Produkte');
-      
+
+      // Header row styling (bold white on dark blue, centered, bordered)
+      const headerRow = ws.getRow(1);
+      headerRow.eachCell(cell => {
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } }
+        };
+      });
+
+      dataRows.forEach(r => {
+        const row = ws.addRow({ name: r[0], category: r[1], price: r[2], options: r[3] });
+        row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+          cell.alignment = { horizontal: colNumber === 1 ? 'left' : 'center', vertical: 'middle', wrapText: true };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+            bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+            left: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+            right: { style: 'thin', color: { argb: 'FFCCCCCC' } }
+          };
+          if (colNumber === 3) cell.numFmt = '0.00';
+        });
+      });
+
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       const filename = mode === 'current' ? 'produkte-export.xlsx' : 'produkte-template.xlsx';
       res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
-      
-      const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });
-      res.send(buffer);
+
+      const buffer = await wb.xlsx.writeBuffer();
+      res.send(Buffer.from(buffer));
     } catch (err) {
       console.error('Export error:', err);
       res.status(500).json({ error: err.message || 'Export failed' });
@@ -878,7 +890,8 @@ async function start() {
   }
 
   // Admin: Export products as Excel (mode=template|current)
-  app.get('/api/admin/export-products', exportProducts);
+  // Wrap so Express does not pass `next` as the third arg (which previously forced template mode)
+  app.get('/api/admin/export-products', (req, res) => exportProducts(req, res));
 
   // Admin: Export price list as Word (.docx) — title "Speisen und Getränke" with Bildmarke watermark
   app.get('/api/admin/export-pricelist', async (req, res) => {
@@ -981,45 +994,77 @@ async function start() {
     await exportProducts(req, res, 'template');
   });
 
-  // Admin: Import products from Excel
+  // Admin: Import products from Excel (.xlsx) or CSV
   app.post('/api/admin/import-products', upload.single('file'), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-      
-      // Parse Excel file
-      const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(worksheet);
-      
-      if (!rows || rows.length === 0) {
+
+      // Build a list of { values: {header->text}, line } records from xlsx or csv
+      const records = [];
+      const fileName = (req.file.originalname || '').toLowerCase();
+
+      if (fileName.endsWith('.csv')) {
+        const text = req.file.buffer.toString('utf8').replace(/^\uFEFF/, '');
+        const lines = text.split(/\r?\n/);
+        if (lines.length === 0 || lines[0].trim() === '') {
+          return res.status(400).json({ error: 'No data found in spreadsheet' });
+        }
+        const headers = parseCsvLine(lines[0]).map(h => h.trim());
+        for (let i = 1; i < lines.length; i++) {
+          if (lines[i].trim() === '') continue;
+          const cells = parseCsvLine(lines[i]);
+          const obj = {};
+          headers.forEach((h, idx) => { obj[h] = cells[idx] != null ? cells[idx] : ''; });
+          records.push({ values: obj, line: i + 1 });
+        }
+      } else {
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(req.file.buffer);
+        const worksheet = workbook.worksheets[0];
+        if (!worksheet) return res.status(400).json({ error: 'No data found in spreadsheet' });
+        const headers = [];
+        worksheet.getRow(1).eachCell({ includeEmpty: true }, (cell, col) => { headers[col] = cellText(cell).trim(); });
+        for (let r = 2; r <= worksheet.rowCount; r++) {
+          const row = worksheet.getRow(r);
+          const obj = {};
+          for (let col = 1; col < headers.length; col++) {
+            const key = headers[col];
+            if (!key) continue;
+            obj[key] = cellText(row.getCell(col));
+          }
+          records.push({ values: obj, line: r });
+        }
+      }
+
+      if (records.length === 0) {
         return res.status(400).json({ error: 'No data found in spreadsheet' });
       }
-      
+
       // Validate and prepare data
       const results = { success: 0, errors: [] };
-      
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const lineNum = i + 2; // +2 because headers are row 1, data starts at row 2
-        
+
+      for (const rec of records) {
+        const row = rec.values;
+        const lineNum = rec.line;
+
         // Extract and trim values
-        const name = (row['Produktname'] || row['Name'] || '').trim();
-        const categoryName = (row['Kategorie'] || row['Category'] || '').trim();
+        const name = String(row['Produktname'] || row['Name'] || '').trim();
+        const categoryName = String(row['Kategorie'] || row['Category'] || '').trim();
         const priceStr = String(row['Preis'] || row['Price'] || '0').trim().replace(',', '.');
-        const noteOptions = (row['Optionen'] || row['Options'] || '').trim();
-        
+        const noteOptions = String(row['Optionen'] || row['Options'] || '').trim();
+
         // Validation
         if (!name) {
           results.errors.push({ line: lineNum, error: 'Produktname fehlt' });
           continue;
         }
-        
+
         const price = parseFloat(priceStr);
         if (isNaN(price)) {
           results.errors.push({ line: lineNum, error: `Ungültiger Preis: "${priceStr}"` });
           continue;
         }
-        
+
         try {
           // Get or create category
           let categoryId = null;
@@ -1066,8 +1111,8 @@ async function start() {
     }
   });
 
-  // fallback to index.html for client-side routing
-  app.get('*', (req, res) => {
+  // fallback to index.html for client-side routing (Express 5: use middleware instead of '*')
+  app.use((req, res) => {
     if (fs.existsSync(path.join(publicDir, 'index.html'))) res.sendFile(path.join(publicDir, 'index.html'));
     else res.status(404).send('Not found');
   });

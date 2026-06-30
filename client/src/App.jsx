@@ -1325,8 +1325,8 @@ function ImportProductsModal({ onClose, onSuccess }) {
     setError(null)
     
     // Quick validation
-    if (!f.name.endsWith('.xlsx') && !f.name.endsWith('.xls') && !f.name.endsWith('.csv')) {
-      setError('Nur Excel (.xlsx, .xls) oder CSV-Dateien erlaubt')
+    if (!f.name.endsWith('.xlsx') && !f.name.endsWith('.csv')) {
+      setError('Nur Excel (.xlsx) oder CSV-Dateien erlaubt')
       setFile(null)
       return
     }
@@ -1405,7 +1405,7 @@ function ImportProductsModal({ onClose, onSuccess }) {
         <div style={{marginBottom: 16}}>
           <input 
             type="file" 
-            accept=".xlsx,.xls,.csv"
+            accept=".xlsx,.csv"
             onChange={handleFileSelect}
             disabled={loading}
           />
