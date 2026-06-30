@@ -20,7 +20,12 @@ html, body { height: 100% }
 body {
   margin: 0; padding: 0;
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, Noto Sans, "Apple Color Emoji", "Segoe UI Emoji";
-  background: linear-gradient(180deg, var(--bg), #0d1525);
+  background:
+    radial-gradient(900px 500px at 12% -8%, rgba(99,102,241,0.18), transparent 60%),
+    radial-gradient(800px 480px at 105% 0%, rgba(16,185,129,0.12), transparent 55%),
+    radial-gradient(700px 500px at 50% 120%, rgba(245,158,11,0.08), transparent 60%),
+    linear-gradient(180deg, var(--bg), #0d1525);
+  background-attachment: fixed;
   color: var(--text);
 }
 
@@ -273,6 +278,7 @@ table.data-table tbody tr:hover { background: rgba(255,255,255,0.03) }
 @media (min-width: 1100px) {
   .admin-grid { grid-template-columns: 1fr 1fr 2fr 1fr }
   .span-2 { grid-column: span 2 }
+  .span-4 { grid-column: 1 / -1 }
 }
 @media (max-width: 1099px) {
   .admin-grid { display: flex; flex-direction: column }
@@ -369,3 +375,63 @@ table.data-table tbody tr:hover { background: rgba(255,255,255,0.03) }
   margin-bottom: 1rem;
   font-size: 0.9rem;
 }
+
+/* ---- Admin dashboard ---- */
+.dashboard { background: linear-gradient(180deg, rgba(99,102,241,0.10), var(--surface)); border-color: rgba(99,102,241,0.25) }
+.dashboard-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:14px }
+.dashboard-head h3 { margin:0 }
+
+.stat-grid { display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-bottom:16px }
+@media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(2, 1fr) } }
+@media (max-width: 480px) { .stat-grid { grid-template-columns: 1fr } }
+.stat-card {
+  background: linear-gradient(180deg, var(--card), var(--surface));
+  border:1px solid rgba(255,255,255,0.08);
+  border-top: 3px solid var(--primary);
+  border-radius: 14px; padding: 14px 16px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+}
+.stat-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px }
+.stat-value { font-size: 1.8rem; font-weight: 800; margin-top: 4px; font-variant-numeric: tabular-nums }
+.stat-sub { font-size: 11px; margin-top: 2px }
+
+.chart-grid { display:grid; grid-template-columns: 1fr 1fr; gap:14px }
+@media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr } }
+.chart-grid .span-full { grid-column: 1 / -1 }
+.chart-card {
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border:1px solid rgba(255,255,255,0.07);
+  border-radius: 14px; padding: 14px;
+}
+.chart-title { font-weight: 700; margin-bottom: 8px; color: var(--text) }
+
+/* ---- Product color picker ---- */
+.color-swatch { display:inline-block; width:18px; height:18px; border-radius:6px; border:2px solid rgba(255,255,255,0.25); flex: 0 0 auto }
+.color-pick { display:inline-flex; align-items:center; justify-content:center; width:36px; height:34px; padding:0; border:1px solid rgba(255,255,255,0.12); border-radius:8px; overflow:hidden; cursor:pointer; background:#0b1220 }
+.color-pick input[type="color"] { width:48px; height:48px; border:none; padding:0; background:transparent; cursor:pointer }
+
+/* ---- Guest panel + toggle switch ---- */
+.guest-panel { background: linear-gradient(180deg, rgba(245,158,11,0.08), var(--surface)); border-color: rgba(245,158,11,0.25) }
+.badge.experimental { background: rgba(245,158,11,0.2); color: var(--warning); margin-left: 8px; font-size: 11px; padding:2px 8px; border-radius:999px; font-weight:700 }
+.switch-row { display:flex; align-items:center; gap:10px; cursor:pointer; font-weight:600 }
+.switch { position:relative; display:inline-block; width:46px; height:26px }
+.switch input { opacity:0; width:0; height:0 }
+.switch .slider { position:absolute; inset:0; background:#334155; border-radius:999px; transition: background .2s }
+.switch .slider::before { content:""; position:absolute; height:20px; width:20px; left:3px; top:3px; background:#fff; border-radius:50%; transition: transform .2s }
+.switch input:checked + .slider { background: var(--success) }
+.switch input:checked + .slider::before { transform: translateX(20px) }
+.switch input:disabled + .slider { opacity:0.6 }
+
+/* ---- Selected-table chip (order view) ---- */
+.table-chip {
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border:1px solid rgba(255,255,255,0.08); border-radius:14px;
+  padding:10px 14px; margin-bottom:12px; box-shadow: var(--shadow);
+}
+.table-chip-info { display:flex; flex-direction:column }
+.table-chip-num { font-size:18px }
+
+/* ---- Guest self-order view ---- */
+.guest-app .guest-notice { max-width: 640px; margin: 0 auto; text-align:center }
+.guest-app .guest-notice h2 { margin-top: 0 }

@@ -1,0 +1,8 @@
+Bestellung #6
+*** GASTBESTELLUNG ***
+GAST: SmokeTest
+Tisch: 1
+---
+1 x Cola (2.5 je) 
+---
+Summe: 2.50€

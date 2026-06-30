@@ -5,11 +5,17 @@ Eine schlanke Web‑Kasse für Sitzungen: Bestellungen aufnehmen, Küche koordin
 ## 🎯 Features
 
 ### Bestellen (mobil‑freundlich)
-- Tischauswahl mit Bestätigung, falls beim Wechsel ein gefüllter Warenkorb existiert
+- Direkte Tischauswahl: Tisch-Raster wird sofort angezeigt, ein Tipp wählt den Tisch und öffnet die Bestellansicht (kein zusätzlicher „Tisch wählen"-Schritt). Aktiver Tisch wird als Chip mit „Ändern" angezeigt
 - Kellnername optional erfassbar
 - Artikel nach Kategorien gruppiert, Menge und Notizen (Sonderwünsche)
+- Pro Artikel konfigurierbare Button-Farbe (im Admin) mit automatisch lesbarer Textfarbe
 - Vordefinierte Notizoptionen pro Artikel (z. B. „Ketchup, Mayo" für Pommes)
 - „Bestellung abschicken“: legt Order an, erzeugt Bon‑Datei und leert Tisch/Warenkorb
+
+### Gäste-Bestellung (experimentell)
+- Gäste öffnen `/<Tischnummer>` (z. B. `/5`) und gelangen zu einer kundenoptimierten Bestellansicht
+- Namenseingabe erforderlich; Bestellungen werden auf dem Bon ausdrücklich als „GAST <Name>" ausgewiesen
+- Im Admin-Bereich per Schalter an-/abschaltbar; bei deaktivierter Funktion werden Gast-Bestellungen serverseitig abgelehnt
 
 ### Küche
 - Übersicht offener Bestellungen mit Auto‑Refresh (3 s)- Artikel nach Kategorien gruppiert für bessere Übersicht- Einzelne Bestellungen als „Erledigt“ markieren
@@ -19,10 +25,13 @@ Eine schlanke Web‑Kasse für Sitzungen: Bestellungen aufnehmen, Küche koordin
 - Teilzahlungen: beliebige Einheiten auswählen; serverseitiges korrektes Splitten bei Teilmengen
 
 ### Admin
-- Stammdaten: Kategorien, Produkte (inkl. Notizoptionen), Tische
+- Dashboard mit Live-Kennzahlen (Umsatz bezahlt/gesamt/offen, offene Bestellungen) und Grafiken: Umsatzverlauf (kumuliert), Bilanz bezahlt vs. offen, Top-Artikel — Auto-Refresh alle 15 s
+- Stammdaten: Kategorien, Produkte (inkl. Notizoptionen und Button-Farbe), Tische
 - Tische: Einzeln oder als Bereich anlegen (z. B. „1-30")
 - Produkte: Excel-Export/Import für schnelle Bulk-Bearbeitung
-- Reports (Tagesumsatz bezahlt, Bestellungen, verkaufte Artikel) in separatem Fenster
+- Preisliste als Word-Dokument (.docx) „Speisen und Getränke" mit Bildmarke als Hintergrund herunterladen
+- Gäste-Bestellung (experimentell) per Schalter aktivieren/deaktivieren
+- Reports (Tagesumsatz bezahlt, Bestellungen, verkaufte Artikel) zusätzlich in separatem Fenster
 - „Kasse auf Null setzen“: löscht Bestellungen und lokale Bon‑Dateien (irreversibel)
 - Passwortschutz: Admin-Bereich erfordert Anmeldung per `ADMIN_PASSWORD`
 
@@ -95,7 +104,7 @@ npm run dev
 Hinweis: Im Container liefert Express das gebaute Frontend aus `server/public` aus. Im lokalen Dev nutzt der Client die API unter http://localhost:3000.
 
 ## 📱 Verwendung
-1) Tisch wählen (oder anpassen). Bei gefülltem Warenkorb erscheint beim Wechsel eine Bestätigung.
+1) Tisch direkt im angezeigten Raster antippen (kein separater „Tisch wählen"-Schritt). Über „Ändern" zurück zum Raster; bei gefülltem Warenkorb erscheint beim Wechsel eine Bestätigung.
 2) Optional: Kellnername eingeben (wird auf Bon gedruckt).
 3) Artikel auswählen, Menge/Notizen setzen, in den Warenkorb legen.
    - Für Artikel mit vordefinierten Optionen (z. B. „Ketchup, Mayo" bei Pommes) können diese per Klick ausgewählt werden.
@@ -118,14 +127,16 @@ Hinweis: Im Container liefert Express das gebaute Frontend aus `server/public` a
 ### API‑Endpunkte (Auswahl)
 
 #### Menü & Bestellungen
-- GET `/api/menu` — Kategorien mit Items (inkl. `noteOptions` pro Artikel)
+- GET `/api/menu` — Kategorien mit Items (inkl. `noteOptions` und `color` pro Artikel)
 - POST `/api/orders` — `{ tableNumber, waiter, items:[{id, qty, notes}] }`
+  - Gast-Bestellung: zusätzlich `{ guest: true, customerName }` — nur erlaubt, wenn Gäste-Bestellung aktiviert ist; Bon weist „GAST <Name>" aus
 - GET `/api/orders?status=open|paid|complete` — Bestellungen filtern nach Status
 - POST `/api/orders/:id/pay` — Bestellung als bezahlt markieren
 - POST `/api/orders/:id/complete` — Bestellung als erledigt markieren
 
 #### Tisch-Service (Bezahlen)
 - GET `/api/tables` — verfügbare Tische (öffentlich)
+- GET `/api/settings` — öffentliche Feature-Flags, z. B. `{ guestOrderingEnabled }`
 - GET `/api/tables/:number/items` — offene Einheiten eines Tisches (qty expandiert)
 - POST `/api/tables/:number/pay-items` — `{ itemIds:["<order_item_id>-<index>", ...] }`
 
@@ -144,22 +155,27 @@ Hinweis: Im Container liefert Express das gebaute Frontend aus `server/public` a
 #### Admin Export/Import
 - GET `/api/admin/export-products?mode=template|current` — Excel als Vorlage oder mit aktuellen Produkten herunterladen
 - GET `/api/admin/export-template` — Legacy-Endpunkt für Vorlagen-Download
+- GET `/api/admin/export-pricelist` — Preisliste „Speisen und Getränke" als Word (.docx) mit Bildmarke als Hintergrund
 - POST `/api/admin/import-products` — Excel hochladen (multipart/form-data, field: `file`)
 
-#### Admin Reports
+#### Admin Reports & Einstellungen
 - GET `/api/admin/reports/summary?date=YYYY-MM-DD` — Tagesumsatz (nur bezahlte Items)
 - GET `/api/admin/reports/summary-all?date=YYYY-MM-DD` — Gesamt-Umsatz (inkl. unbezahlt)
 - GET `/api/admin/reports/orders?date=YYYY-MM-DD` — Bestellungen für einen Tag
 - GET `/api/admin/reports/items?date=YYYY-MM-DD` — Verkaufte Artikel (gesamt + bezahlt)
+- GET `/api/admin/reports/timeseries?bucket=<min>` — Umsatzverlauf (Zeitreihe, kumuliert) für die Dashboard-Grafiken
+- GET/POST `/api/admin/settings` — Feature-Flags lesen/setzen, z. B. `{ guestOrderingEnabled: boolean }`
 - POST `/api/admin/reset` — Kasse auf Null (löscht alle Bestellungen + Bons)
 
 ## 🎨 Design
-- Schlichtes, gut lesbares Layout
-- Touch‑optimierte Controls
+- Modernes, dunkles Layout mit dezenten Farbverläufen (statt steriler Flächen)
+- Admin-Dashboard mit Kennzahl-Karten und Grafiken (recharts)
+- Touch‑optimierte Controls; pro Artikel einstellbare Button-Farben
 - Fokus auf schnelle, robuste Eingaben vor Ort
 
 ## 📝 Changelog (Kurz)
 - 2025‑11: Docker Compose hinzugefügt; Tischwechsel‑Hinweis bereinigt (statt statisch → kontextuelle Bestätigung)
 - 2026‑02: Kellnernamen auf Bons; Notizoptionen für Artikel; Kategorien-Gruppierung in Menü/Küche; Excel-Import/Export für Produkte; Tisch-Bereichsanlage (z. B. „1-30")
+- 2026‑06: Admin-Dashboard mit Grafiken; pro-Artikel Button-Farben; direkte Tischauswahl; .docx-Preisliste „Speisen und Getränke" mit Bildmarke; experimentelle Gäste-Bestellung über `/<Tischnummer>`
 
 

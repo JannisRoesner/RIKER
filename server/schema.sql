@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS items (
   name TEXT NOT NULL,
   price REAL NOT NULL DEFAULT 0,
   available INTEGER DEFAULT 1,
-  note_options TEXT
+  note_options TEXT,
+  color TEXT
 );
 
 CREATE TABLE IF NOT EXISTS orders (
@@ -20,7 +21,9 @@ CREATE TABLE IF NOT EXISTS orders (
   waiter TEXT,
   total REAL DEFAULT 0,
   status TEXT DEFAULT 'open',
-  created_at TEXT
+  created_at TEXT,
+  is_guest INTEGER DEFAULT 0,
+  customer_name TEXT
 );
 
 CREATE TABLE IF NOT EXISTS order_items (

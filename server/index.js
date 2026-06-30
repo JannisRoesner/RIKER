@@ -7,6 +7,11 @@ const sqlite3 = require('sqlite3').verbose();
 const { open } = require('sqlite');
 const multer = require('multer');
 const XLSX = require('xlsx');
+const {
+  Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel,
+  Header, ImageRun, TabStopType, TabStopPosition, LeaderType,
+  HorizontalPositionAlign, VerticalPositionAlign, HorizontalPositionRelativeFrom, VerticalPositionRelativeFrom
+} = require('docx');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.sqlite');
@@ -57,6 +62,42 @@ async function start() {
     }
   } catch (err) {
     console.warn('Migration check failed:', err.message || err);
+  }
+
+  // Migration: ensure items has 'color' column
+  try {
+    const cols = await db.all("PRAGMA table_info('items')");
+    if (!cols.find(c => c.name === 'color')) {
+      await db.run('ALTER TABLE items ADD COLUMN color TEXT');
+      console.log('Migration: added color column to items');
+    }
+  } catch (err) {
+    console.warn('Migration check failed:', err.message || err);
+  }
+
+  // Migration: ensure orders has guest columns
+  try {
+    const cols = await db.all("PRAGMA table_info('orders')");
+    if (!cols.find(c => c.name === 'is_guest')) {
+      await db.run('ALTER TABLE orders ADD COLUMN is_guest INTEGER DEFAULT 0');
+      console.log('Migration: added is_guest column to orders');
+    }
+    if (!cols.find(c => c.name === 'customer_name')) {
+      await db.run('ALTER TABLE orders ADD COLUMN customer_name TEXT');
+      console.log('Migration: added customer_name column to orders');
+    }
+  } catch (err) {
+    console.warn('Migration check failed:', err.message || err);
+  }
+
+  // Ensure guest ordering setting exists (default off)
+  try {
+    const existing = await db.get('SELECT value FROM app_settings WHERE key = ?', 'guest_ordering_enabled');
+    if (!existing) {
+      await db.run('INSERT INTO app_settings (key, value) VALUES (?, ?)', ['guest_ordering_enabled', '0']);
+    }
+  } catch (err) {
+    console.warn('Guest setting init failed:', err.message || err);
   }
 
   const app = express();
@@ -149,7 +190,7 @@ async function start() {
   });
 
   app.get('/api/menu', async (req, res) => {
-    const items = await db.all(`SELECT i.id, i.name, i.price, i.available, i.note_options, c.id as category_id, c.name as category
+    const items = await db.all(`SELECT i.id, i.name, i.price, i.available, i.note_options, i.color, c.id as category_id, c.name as category
       FROM items i JOIN categories c ON i.category_id = c.id
       ORDER BY c.name COLLATE NOCASE ASC, i.name COLLATE NOCASE ASC`);
     // group by category
@@ -157,15 +198,31 @@ async function start() {
     items.forEach(it => {
       if (!cats[it.category_id]) cats[it.category_id] = { id: it.category_id, name: it.category, items: [] };
       const noteOptions = it.note_options ? it.note_options.split(',').map(s => s.trim()).filter(Boolean) : [];
-      cats[it.category_id].items.push({ id: it.id, name: it.name, price: it.price, available: !!it.available, noteOptions });
+      cats[it.category_id].items.push({ id: it.id, name: it.name, price: it.price, available: !!it.available, noteOptions, color: it.color || null });
     });
     res.json(Object.values(cats));
   });
 
   app.post('/api/orders', async (req, res) => {
     try {
-      const { tableNumber, items, waiter } = req.body;
+      const { tableNumber, items, waiter, guest, customerName } = req.body;
       if (!tableNumber || !Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'tableNumber and items required' });
+
+      // Guest self-ordering: only allowed when feature is enabled
+      let isGuest = 0;
+      let resolvedCustomerName = null;
+      let resolvedWaiter = waiter || null;
+      if (guest) {
+        const setting = await db.get('SELECT value FROM app_settings WHERE key = ?', 'guest_ordering_enabled');
+        if (!setting || setting.value !== '1') {
+          return res.status(403).json({ error: 'Gäste-Bestellung ist deaktiviert' });
+        }
+        const name = (customerName || '').trim();
+        if (!name) return res.status(400).json({ error: 'Name erforderlich' });
+        isGuest = 1;
+        resolvedCustomerName = name;
+        resolvedWaiter = `GAST ${name}`;
+      }
 
       // calculate total from items referencing menu price
       let total = 0;
@@ -175,7 +232,7 @@ async function start() {
         total += price * (it.qty || 1);
       }
 
-      const result = await db.run('INSERT INTO orders (table_number, waiter, total, status, created_at) VALUES (?,?,?,?,datetime("now"))', [tableNumber, waiter || null, total, 'open']);
+      const result = await db.run('INSERT INTO orders (table_number, waiter, total, status, created_at, is_guest, customer_name) VALUES (?,?,?,?,datetime("now"),?,?)', [tableNumber, resolvedWaiter, total, 'open', isGuest, resolvedCustomerName]);
       const orderId = result.lastID;
 
       const insertItem = await db.prepare('INSERT INTO order_items (order_id, item_id, qty, notes) VALUES (?,?,?,?)');
@@ -189,7 +246,12 @@ async function start() {
       const filename = `order-${orderId}-${ts}.txt`;
       const lines = [];
       lines.push(`Bestellung #${orderId}`);
-      if (waiter) lines.push(`Bedienung: ${waiter}`);
+      if (isGuest) {
+        lines.push('*** GASTBESTELLUNG ***');
+        lines.push(`GAST: ${resolvedCustomerName}`);
+      } else if (resolvedWaiter) {
+        lines.push(`Bedienung: ${resolvedWaiter}`);
+      }
       lines.push(`Tisch: ${tableNumber}`);
       lines.push('---');
       for (const it of items) {
@@ -227,6 +289,16 @@ async function start() {
     try {
       const rows = await db.all('SELECT * FROM tables ORDER BY CAST(number AS INTEGER) ASC, number ASC');
       res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: 'db error' });
+    }
+  });
+
+  // Public settings (feature flags visible to clients)
+  app.get('/api/settings', async (req, res) => {
+    try {
+      const row = await db.get('SELECT value FROM app_settings WHERE key = ?', 'guest_ordering_enabled');
+      res.json({ guestOrderingEnabled: row ? row.value === '1' : false });
     } catch (err) {
       res.status(500).json({ error: 'db error' });
     }
@@ -276,15 +348,15 @@ async function start() {
   });
 
   app.post('/api/admin/items', async (req, res) => {
-    const { category_id, name, price, available, note_options } = req.body;
+    const { category_id, name, price, available, note_options, color } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
-    const result = await db.run('INSERT INTO items (category_id, name, price, available, note_options) VALUES (?,?,?,?,?)', [category_id||null, name, price||0, available?1:0, note_options||null]);
+    const result = await db.run('INSERT INTO items (category_id, name, price, available, note_options, color) VALUES (?,?,?,?,?,?)', [category_id||null, name, price||0, available?1:0, note_options||null, color||null]);
     res.json({ id: result.lastID });
   });
 
   app.put('/api/admin/items/:id', async (req, res) => {
-    const id = req.params.id; const { category_id, name, price, available, note_options } = req.body;
-    await db.run('UPDATE items SET category_id = ?, name = ?, price = ?, available = ?, note_options = ? WHERE id = ?', [category_id||null, name, price||0, available?1:0, note_options||null, id]);
+    const id = req.params.id; const { category_id, name, price, available, note_options, color } = req.body;
+    await db.run('UPDATE items SET category_id = ?, name = ?, price = ?, available = ?, note_options = ?, color = ? WHERE id = ?', [category_id||null, name, price||0, available?1:0, note_options||null, color||null, id]);
     res.json({ ok: true });
   });
 
@@ -608,6 +680,72 @@ async function start() {
     }
   });
 
+  // Revenue time series (paid items grouped by time bucket of order creation)
+  app.get('/api/admin/reports/timeseries', async (req, res) => {
+    try {
+      // Bucket size in minutes (default 30)
+      const bucket = Math.max(1, Math.min(1440, parseInt(req.query.bucket, 10) || 30));
+      const rows = await db.all(
+        `SELECT o.created_at, COALESCE(oi.paid,0) as paid, (oi.qty * i.price) as amount
+         FROM order_items oi
+         JOIN orders o ON oi.order_id = o.id
+         JOIN items i ON oi.item_id = i.id
+         WHERE o.created_at IS NOT NULL
+         ORDER BY o.created_at ASC`
+      );
+      // Group in JS into buckets to build cumulative + per-bucket revenue
+      const map = new Map();
+      const bucketMs = bucket * 60 * 1000;
+      for (const r of rows) {
+        const t = Date.parse((r.created_at || '').replace(' ', 'T') + 'Z');
+        if (isNaN(t)) continue;
+        const slot = Math.floor(t / bucketMs) * bucketMs;
+        if (!map.has(slot)) map.set(slot, { t: slot, paid: 0, all: 0 });
+        const entry = map.get(slot);
+        entry.all += r.amount;
+        if (r.paid === 1) entry.paid += r.amount;
+      }
+      const series = Array.from(map.values()).sort((a, b) => a.t - b.t);
+      let cumPaid = 0, cumAll = 0;
+      const out = series.map(s => {
+        cumPaid += s.paid; cumAll += s.all;
+        const d = new Date(s.t);
+        const label = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        return { time: label, paid: Number(s.paid.toFixed(2)), all: Number(s.all.toFixed(2)), cumPaid: Number(cumPaid.toFixed(2)), cumAll: Number(cumAll.toFixed(2)) };
+      });
+      res.json(out);
+    } catch (err) {
+      console.error('report timeseries error', err);
+      res.status(500).json({ error: 'internal' });
+    }
+  });
+
+  // Admin: read/update app settings (feature flags)
+  app.get('/api/admin/settings', async (req, res) => {
+    try {
+      const row = await db.get('SELECT value FROM app_settings WHERE key = ?', 'guest_ordering_enabled');
+      res.json({ guestOrderingEnabled: row ? row.value === '1' : false });
+    } catch (err) {
+      res.status(500).json({ error: 'db error' });
+    }
+  });
+
+  app.post('/api/admin/settings', async (req, res) => {
+    try {
+      const { guestOrderingEnabled } = req.body || {};
+      if (typeof guestOrderingEnabled === 'boolean') {
+        await db.run(
+          'INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+          ['guest_ordering_enabled', guestOrderingEnabled ? '1' : '0']
+        );
+      }
+      const row = await db.get('SELECT value FROM app_settings WHERE key = ?', 'guest_ordering_enabled');
+      res.json({ guestOrderingEnabled: row ? row.value === '1' : false });
+    } catch (err) {
+      res.status(500).json({ error: 'db error' });
+    }
+  });
+
   // Admin: Reset all orders (dangerous)
   app.post('/api/admin/reset', async (req, res) => {
     try {
@@ -741,6 +879,102 @@ async function start() {
 
   // Admin: Export products as Excel (mode=template|current)
   app.get('/api/admin/export-products', exportProducts);
+
+  // Admin: Export price list as Word (.docx) — title "Speisen und Getränke" with Bildmarke watermark
+  app.get('/api/admin/export-pricelist', async (req, res) => {
+    try {
+      const items = await db.all(`
+        SELECT i.name, i.price, c.name as category
+        FROM items i LEFT JOIN categories c ON i.category_id = c.id
+        WHERE COALESCE(i.available, 1) = 1
+        ORDER BY (c.name IS NULL) ASC, c.name COLLATE NOCASE ASC, i.name COLLATE NOCASE ASC
+      `);
+
+      // Group items by category
+      const groups = new Map();
+      for (const it of items) {
+        const cat = it.category || 'Sonstiges';
+        if (!groups.has(cat)) groups.set(cat, []);
+        groups.get(cat).push(it);
+      }
+
+      // Resolve Bildmarke for the watermark (runtime: server/public, dev fallback: client/public)
+      let logoBuffer = null;
+      const logoCandidates = [
+        path.join(__dirname, 'public', 'bildmarke.png'),
+        path.join(__dirname, '..', 'client', 'public', 'bildmarke.png'),
+        path.join(__dirname, '..', 'client', 'src', 'bildmarke.png')
+      ];
+      for (const p of logoCandidates) {
+        try { if (fs.existsSync(p)) { logoBuffer = fs.readFileSync(p); break; } } catch {}
+      }
+
+      // Build a centered, behind-text watermark image for the page header (repeats on every page)
+      let header;
+      if (logoBuffer) {
+        header = new Header({
+          children: [
+            new Paragraph({
+              children: [
+                new ImageRun({
+                  type: 'png',
+                  data: logoBuffer,
+                  transformation: { width: 420, height: 420 },
+                  floating: {
+                    horizontalPosition: { relative: HorizontalPositionRelativeFrom.PAGE, align: HorizontalPositionAlign.CENTER },
+                    verticalPosition: { relative: VerticalPositionRelativeFrom.PAGE, align: VerticalPositionAlign.CENTER },
+                    behindDocument: true,
+                    allowOverlap: true
+                  }
+                })
+              ]
+            })
+          ]
+        });
+      }
+
+      const children = [];
+      children.push(new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 400 },
+        children: [new TextRun({ text: 'Speisen und Getränke', bold: true, size: 56 })]
+      }));
+
+      for (const [cat, list] of groups) {
+        children.push(new Paragraph({
+          spacing: { before: 280, after: 120 },
+          heading: HeadingLevel.HEADING_1,
+          children: [new TextRun({ text: cat, bold: true, size: 32 })]
+        }));
+        for (const it of list) {
+          const price = (Number(it.price) || 0).toFixed(2).replace('.', ',') + ' €';
+          children.push(new Paragraph({
+            tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX, leader: LeaderType.DOT }],
+            spacing: { after: 80 },
+            children: [
+              new TextRun({ text: it.name, size: 24 }),
+              new TextRun({ text: `\t${price}`, size: 24, bold: true })
+            ]
+          }));
+        }
+      }
+
+      const doc = new Document({
+        sections: [{
+          headers: header ? { default: header } : undefined,
+          children
+        }]
+      });
+
+      const buffer = await Packer.toBuffer(doc);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', 'attachment; filename=speisen-und-getraenke.docx');
+      res.send(buffer);
+    } catch (err) {
+      console.error('Pricelist export error:', err);
+      res.status(500).json({ error: err.message || 'Export failed' });
+    }
+  });
 
   // Backward-compatible endpoint for template export
   app.get('/api/admin/export-template', async (req, res) => {
