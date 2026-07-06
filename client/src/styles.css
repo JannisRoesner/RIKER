@@ -132,12 +132,12 @@ body {
   height: 32px;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  font-size: 18px;
+  color: #fff;
   border: none;
   background: transparent;
 }
 .hamburger { border: 1px solid rgba(255,255,255,0.35); border-radius:8px; background: rgba(255,255,255,0.12); }
-.hamburger span { display:block; width: 20px; height:2px; background:#fff }
 
 /* Mobile layout */
 @media (max-width: 768px) {

@@ -119,88 +119,8 @@ function LoginDialog({ onSuccess }) {
   )
 }
 
-function TablePicker({ tables, value, onChange }) {
-  return (
-    <div className="panel">
-      <div className="form-row" style={{gap:12}}>
-        <label>Tischnummer wählen</label>
-        <select value={value} onChange={e => onChange(e.target.value)}>
-          <option value="">— bitte wählen —</option>
-          {tables.map(t => (
-            <option key={t.id} value={t.number}>{t.number}</option>
-          ))}
-        </select>
-      </div>
-    </div>
-  )
-}
-
-// Touch-optimierter Tischauswahl-Dialog (Grid + Suche + Pagination)
-function TableSelector({ tables, value, onSelect, onClose }) {
-  const [page, setPage] = useState(0)
-  const pageSize = 24
-  const sorted = [...tables].sort((a,b) => (parseInt(a.number,10)||0) - (parseInt(b.number,10)||0))
-  const filtered = sorted
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const currentPage = Math.min(page, totalPages-1)
-  const slice = filtered.slice(currentPage*pageSize, currentPage*pageSize + pageSize)
-
-  function pick(num) {
-    onSelect(num)
-    onClose()
-  }
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={e=>e.stopPropagation()} style={{width:560, maxWidth:'100%'}}>
-        <h3>Tisch auswählen</h3>
-        <div className="selector-bar" style={{justifyContent:'flex-end'}}>
-          <button className="btn btn-ghost" onClick={onClose}>Schließen</button>
-        </div>
-
-        <div className="table-grid">
-          {slice.map(t => (
-            <button key={t.id} className={`table-btn ${String(value)===String(t.number)?'active':''}`} onClick={()=>pick(t.number)}>
-              <div className="num">{t.number}</div>
-            </button>
-          ))}
-        </div>
-
-        {totalPages > 1 && (
-          <div className="pager">
-            <button className="btn btn-ghost btn-sm" disabled={currentPage===0} onClick={()=>setPage(p=>Math.max(0,p-1))}>Zurück</button>
-            <span className="muted">Seite {currentPage+1} / {totalPages}</span>
-            <button className="btn btn-ghost btn-sm" disabled={currentPage===totalPages-1} onClick={()=>setPage(p=>Math.min(totalPages-1,p+1))}>Weiter</button>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function TableSelectControl({ tables, value, onChange }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="panel">
-      <div className="form-row" style={{justifyContent:'space-between'}}>
-        <div>
-          <div className="muted" style={{marginBottom:4}}>Aktueller Tisch</div>
-          <div style={{fontWeight:700, fontSize:18}}>{value ? `Tisch ${value}` : '— keiner —'}</div>
-        </div>
-        <div style={{display:'flex', gap:8}}>
-          {value ? <button className="btn btn-ghost" onClick={() => onChange('')}>Leeren</button> : null}
-          <button className="btn btn-primary" onClick={() => setOpen(true)}>{value? 'Ändern' : 'Tisch wählen'}</button>
-        </div>
-      </div>
-      {open && (
-        <TableSelector tables={tables} value={value} onSelect={onChange} onClose={() => setOpen(false)} />
-      )}
-    </div>
-  )
-}
-
 // Always-visible touch grid: one tap selects a table (no extra "Tisch wählen" step)
-function InlineTableGrid({ tables, value, onSelect, title = 'Tisch wählen' }) {
+function InlineTableGrid({ tables, value, onSelect, title = 'Tisch wählen', subtitle = 'Tippe auf einen Tisch, um direkt zu bestellen.' }) {
   const [page, setPage] = useState(0)
   const pageSize = 40
   const sorted = [...tables].sort((a, b) => (parseInt(a.number, 10) || 0) - (parseInt(b.number, 10) || 0))
@@ -211,7 +131,7 @@ function InlineTableGrid({ tables, value, onSelect, title = 'Tisch wählen' }) {
   return (
     <div className="panel">
       <h2 style={{ marginBottom: 4 }}>{title}</h2>
-      <div className="muted" style={{ marginBottom: 12 }}>Tippe auf einen Tisch, um direkt zu bestellen.</div>
+      <div className="muted" style={{ marginBottom: 12 }}>{subtitle}</div>
       {tables.length === 0 ? (
         <div className="muted">Keine Tische angelegt.</div>
       ) : (
@@ -464,8 +384,13 @@ function StaffApp() {
                 <button className="btn btn-ghost btn-sm" onClick={changeWaiter} title="Namen ändern">✏️</button>
               </div>
             )}
-            <button className="hamburger" aria-label="Menü" onClick={()=>setNavOpen(o=>!o)}>
-              <span></span><span></span><span></span>
+            <button
+              className="hamburger"
+              aria-label="Menü"
+              aria-expanded={navOpen}
+              onClick={() => setNavOpen(o => !o)}
+            >
+              <i className={`fa-solid ${navOpen ? 'fa-xmark' : 'fa-bars'}`} aria-hidden="true" />
             </button>
           </div>
           <nav className={`tabs ${navOpen ? 'open' : ''}`} role="navigation" aria-label="Hauptnavigation">
@@ -671,38 +596,48 @@ function Service() {
     setItems(rows); setSelected(new Set())
   }
 
+  if (!table) {
+    return (
+      <InlineTableGrid
+        tables={tables}
+        value={table}
+        onSelect={setTable}
+        title="Bezahlen — Tisch wählen"
+        subtitle="Tippe auf einen Tisch, um offene Posten zu sehen."
+      />
+    )
+  }
+
   return (
-    <div className="panel">
-      <h2>Bezahlen — Tisch bezahlen</h2>
-      <TableSelectControl tables={tables} value={table} onChange={setTable} />
-      {!table ? <div>Bitte Tisch wählen</div> : (
-        <div>
-          <div className="pay-head">
-            <div></div>
-            <div className="muted">Artikel</div>
-            <div className="muted align-right">Preis</div>
-          </div>
-          <ul className="pay-list">
-            {items.map(it => (
-              <li key={it.id} onClick={() => toggle(it.id)} style={{cursor:'pointer'}}>
-                <input type="checkbox" checked={selected.has(it.id)} onChange={(e) => { e.stopPropagation(); toggle(it.id) }} />
-                <div className="pay-desc">
-                  <div className="line">
-                    <span className="badge">#{it.order_id}</span>
-                    <span>1× {it.name}</span>
-                  </div>
-                  {it.notes ? <div className="muted" style={{fontSize:12}}>{it.notes}</div> : null}
-                </div>
-                <div className="pay-price">{it.price.toFixed(2)}€</div>
-              </li>
-            ))}
-          </ul>
-          <div className="pay-actions">
-            <strong>Summe: {total.toFixed(2)}€</strong>
-            <button className="btn btn-primary" onClick={paySelected} disabled={selected.size===0}>Bezahlen</button>
-          </div>
+    <div>
+      <TableHeaderChip value={table} onChange={setTable} />
+      <div className="panel">
+        <h2>Bezahlen — Tisch bezahlen</h2>
+        <div className="pay-head">
+          <div></div>
+          <div className="muted">Artikel</div>
+          <div className="muted align-right">Preis</div>
         </div>
-      )}
+        <ul className="pay-list">
+          {items.map(it => (
+            <li key={it.id} onClick={() => toggle(it.id)} style={{cursor:'pointer'}}>
+              <input type="checkbox" checked={selected.has(it.id)} onChange={(e) => { e.stopPropagation(); toggle(it.id) }} />
+              <div className="pay-desc">
+                <div className="line">
+                  <span className="badge">#{it.order_id}</span>
+                  <span>1× {it.name}</span>
+                </div>
+                {it.notes ? <div className="muted" style={{fontSize:12}}>{it.notes}</div> : null}
+              </div>
+              <div className="pay-price">{it.price.toFixed(2)}€</div>
+            </li>
+          ))}
+        </ul>
+        <div className="pay-actions">
+          <strong>Summe: {total.toFixed(2)}€</strong>
+          <button className="btn btn-primary" onClick={paySelected} disabled={selected.size===0}>Bezahlen</button>
+        </div>
+      </div>
     </div>
   )
 }
