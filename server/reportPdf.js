@@ -617,30 +617,7 @@ function drawTaxBreakdown(doc, y, items, ctx) {
     y += 16;
   }
 
-  y += 8;
-  y = needPage(doc, y, 168, ctx);
-  drawRounded(doc, MARGIN, y, CONTENT_W, 158, 8, C.zebra);
-  doc.save();
-  doc.lineWidth(0.8).strokeColor(C.line).roundedRect(MARGIN, y, CONTENT_W, 158, 8).stroke();
-  doc.restore();
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(C.ink)
-    .text('Hinweis für die Vereinsdokumentation (Hessen / Bundesrecht)', MARGIN + 12, y + 10, { width: CONTENT_W - 24 });
-  const notes = [
-    'Eine typische Karnevalssitzung mit Bütten, Elferrat und Brauchtum kann als Zweckbetrieb gelten (§§ 52 Abs. 2 Nr. 23, 65 AO). Eintrittsumsätze sind dann oft körperschaftsteuerfrei und umsatzsteuerlich ermäßigt.',
-    'Der Verkauf von Speisen und Getränken an der Theke wird in der Praxis regelmäßig dem steuerpflichtigen wirtschaftlichen Geschäftsbetrieb zugeordnet — nicht automatisch dem Zweckbetrieb.',
-    'Ertragsteuerliche Freigrenze für steuerpflichtige wirtschaftliche Geschäftsbetriebe: 45.000 € brutto bis VZ 2025, 50.000 € ab VZ 2026 (§ 64 Abs. 3 AO). Umsatzsteuer folgt eigenen Regeln (häufig Regelsteuersatz auf Verzehr).',
-    'Diese Seite ordnet nur Kassenumsätze. Eintrittsgelder, Sponsoring und gemischte Entgelte sind hier nicht enthalten.'
-  ];
-  let ny = y + 28;
-  doc.font('Helvetica').fontSize(7.5).fillColor(C.muted);
-  for (const n of notes) {
-    const h = doc.heightOfString('-  ' + n, { width: CONTENT_W - 28 });
-    doc.text('-  ' + n, MARGIN + 12, ny, { width: CONTENT_W - 28 });
-    ny += h + 4;
-  }
-  doc.font('Helvetica-Oblique').fontSize(7).fillColor(C.danger)
-    .text('Keine Steuerberatung. Nur Dokumentationshilfe — rechtliche Einordnung mit Steuerberatung oder Finanzamt klären.', MARGIN + 12, y + 140, { width: CONTENT_W - 24 });
-  return y + 168;
+  return y + 8;
 }
 
 function buildCompleteReport({ summaryPaid, summaryAll, orders, items, products, series, generatedAt, logoPath }) {
