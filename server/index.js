@@ -51,6 +51,11 @@ function loadBildmarke() {
   return p ? fs.readFileSync(p) : null;
 }
 
+function parseNaiveDate(s) {
+  if (!s) return NaN;
+  return Date.parse(String(s).replace(' ', 'T'));
+}
+
 function findBildmarkePath() {
   const candidates = [
     path.join(__dirname, 'public', 'bildmarke.png'),
@@ -776,7 +781,7 @@ async function start() {
       const map = new Map();
       const bucketMs = bucket * 60 * 1000;
       for (const r of rows) {
-        const t = Date.parse((r.created_at || '').replace(' ', 'T') + 'Z');
+        const t = parseNaiveDate(r.created_at);
         if (isNaN(t)) continue;
         const slot = Math.floor(t / bucketMs) * bucketMs;
         if (!map.has(slot)) map.set(slot, { t: slot, paid: 0, all: 0 });
@@ -944,14 +949,16 @@ async function start() {
         db.get(`SELECT COALESCE(SUM(oi.qty * i.price), 0) as revenueAll
                 FROM order_items oi JOIN orders o ON oi.order_id = o.id JOIN items i ON oi.item_id = i.id`),
         db.all(`SELECT * FROM orders ORDER BY created_at DESC`),
-        db.all(`SELECT i.id as item_id, i.name,
+        db.all(`SELECT i.id as item_id, i.name, c.name as category,
                 COALESCE(SUM(oi.qty),0) as soldQty,
                 COALESCE(SUM(CASE WHEN COALESCE(oi.paid,0)=1 THEN oi.qty ELSE 0 END),0) as paidQty,
+                COALESCE(SUM(oi.qty * i.price),0) as revenueAll,
                 COALESCE(SUM(CASE WHEN COALESCE(oi.paid,0)=1 THEN (oi.qty * i.price) ELSE 0 END),0) as revenuePaid
          FROM order_items oi
          JOIN orders o ON oi.order_id = o.id
          JOIN items i ON i.id = oi.item_id
-         GROUP BY i.id, i.name
+         LEFT JOIN categories c ON i.category_id = c.id
+         GROUP BY i.id, i.name, c.name
          ORDER BY soldQty DESC`),
         db.all(
           `SELECT o.created_at, COALESCE(oi.paid,0) as paid, (oi.qty * i.price) as amount
@@ -969,7 +976,7 @@ async function start() {
       const bucketMs = 30 * 60 * 1000;
       const map = new Map();
       for (const r of tsRows) {
-        const t = Date.parse((r.created_at || '').replace(' ', 'T') + 'Z');
+        const t = parseNaiveDate(r.created_at);
         if (isNaN(t)) continue;
         const slot = Math.floor(t / bucketMs) * bucketMs;
         if (!map.has(slot)) map.set(slot, { t: slot, paid: 0, all: 0 });
@@ -983,7 +990,7 @@ async function start() {
         cumPaid += s.paid; cumAll += s.all;
         const d = new Date(s.t);
         const label = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-        return { time: label, cumPaid: Number(cumPaid.toFixed(2)), cumAll: Number(cumAll.toFixed(2)) };
+        return { t: s.t, time: label, cumPaid: Number(cumPaid.toFixed(2)), cumAll: Number(cumAll.toFixed(2)) };
       });
 
       const buffer = await buildCompleteReport({
