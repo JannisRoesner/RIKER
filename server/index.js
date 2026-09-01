@@ -12,6 +12,7 @@ const {
   Header, ImageRun, TabStopType, TabStopPosition, LeaderType,
   HorizontalPositionAlign, VerticalPositionAlign, HorizontalPositionRelativeFrom, VerticalPositionRelativeFrom
 } = require('docx');
+const { buildCompleteReport } = require('./reportPdf');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.sqlite');
@@ -20,6 +21,46 @@ const PRINTS_DIR = path.join(__dirname, '..', 'prints');
 async function ensureDirs() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(PRINTS_DIR)) fs.mkdirSync(PRINTS_DIR, { recursive: true });
+}
+
+const PRICE_LIST_FONT = 'Calibri';
+
+function generatedStamp(d = new Date()) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function pngSize(buf) {
+  if (!buf || buf.length < 24) return null;
+  if (buf[0] !== 0x89 || buf.toString('ascii', 1, 4) !== 'PNG') return null;
+  const width = buf.readUInt32BE(16);
+  const height = buf.readUInt32BE(20);
+  if (!width || !height) return null;
+  return { width, height };
+}
+
+function fitImage(natural, maxWidth, maxHeight) {
+  const w = (natural && natural.width) || 1;
+  const h = (natural && natural.height) || 1;
+  const scale = Math.min(maxWidth / w, maxHeight / h);
+  return { width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)) };
+}
+
+function loadBildmarke() {
+  const p = findBildmarkePath();
+  return p ? fs.readFileSync(p) : null;
+}
+
+function findBildmarkePath() {
+  const candidates = [
+    path.join(__dirname, 'public', 'bildmarke.png'),
+    path.join(__dirname, '..', 'client', 'public', 'bildmarke.png'),
+    path.join(__dirname, '..', 'client', 'src', 'bildmarke.png')
+  ];
+  for (const p of candidates) {
+    try { if (fs.existsSync(p)) return p; } catch {}
+  }
+  return null;
 }
 
 // Read an ExcelJS cell as plain text (handles rich text and formula results)
@@ -893,6 +934,79 @@ async function start() {
   // Wrap so Express does not pass `next` as the third arg (which previously forced template mode)
   app.get('/api/admin/export-products', (req, res) => exportProducts(req, res));
 
+  // Admin: Complete PDF report (overview + orders + sold items)
+  app.get('/api/admin/export-report', async (req, res) => {
+    try {
+      const [paidRow, allRow, orders, items, tsRows, products] = await Promise.all([
+        db.get(`SELECT COALESCE(SUM(oi.qty * i.price), 0) as revenuePaid
+                FROM order_items oi JOIN orders o ON oi.order_id = o.id JOIN items i ON oi.item_id = i.id
+                WHERE COALESCE(oi.paid,0) = 1`),
+        db.get(`SELECT COALESCE(SUM(oi.qty * i.price), 0) as revenueAll
+                FROM order_items oi JOIN orders o ON oi.order_id = o.id JOIN items i ON oi.item_id = i.id`),
+        db.all(`SELECT * FROM orders ORDER BY created_at DESC`),
+        db.all(`SELECT i.id as item_id, i.name,
+                COALESCE(SUM(oi.qty),0) as soldQty,
+                COALESCE(SUM(CASE WHEN COALESCE(oi.paid,0)=1 THEN oi.qty ELSE 0 END),0) as paidQty,
+                COALESCE(SUM(CASE WHEN COALESCE(oi.paid,0)=1 THEN (oi.qty * i.price) ELSE 0 END),0) as revenuePaid
+         FROM order_items oi
+         JOIN orders o ON oi.order_id = o.id
+         JOIN items i ON i.id = oi.item_id
+         GROUP BY i.id, i.name
+         ORDER BY soldQty DESC`),
+        db.all(
+          `SELECT o.created_at, COALESCE(oi.paid,0) as paid, (oi.qty * i.price) as amount
+           FROM order_items oi
+           JOIN orders o ON oi.order_id = o.id
+           JOIN items i ON oi.item_id = i.id
+           WHERE o.created_at IS NOT NULL
+           ORDER BY o.created_at ASC`
+        ),
+        db.all(`SELECT i.name, i.price, i.available, i.note_options, c.name as category
+                FROM items i LEFT JOIN categories c ON i.category_id = c.id
+                ORDER BY (c.name IS NULL) ASC, c.name COLLATE NOCASE ASC, i.name COLLATE NOCASE ASC`)
+      ]);
+
+      const bucketMs = 30 * 60 * 1000;
+      const map = new Map();
+      for (const r of tsRows) {
+        const t = Date.parse((r.created_at || '').replace(' ', 'T') + 'Z');
+        if (isNaN(t)) continue;
+        const slot = Math.floor(t / bucketMs) * bucketMs;
+        if (!map.has(slot)) map.set(slot, { t: slot, paid: 0, all: 0 });
+        const entry = map.get(slot);
+        entry.all += r.amount;
+        if (r.paid === 1) entry.paid += r.amount;
+      }
+      const seriesSorted = Array.from(map.values()).sort((a, b) => a.t - b.t);
+      let cumPaid = 0, cumAll = 0;
+      const series = seriesSorted.map(s => {
+        cumPaid += s.paid; cumAll += s.all;
+        const d = new Date(s.t);
+        const label = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        return { time: label, cumPaid: Number(cumPaid.toFixed(2)), cumAll: Number(cumAll.toFixed(2)) };
+      });
+
+      const buffer = await buildCompleteReport({
+        summaryPaid: paidRow?.revenuePaid || 0,
+        summaryAll: allRow?.revenueAll || 0,
+        orders,
+        items,
+        products,
+        series,
+        generatedAt: new Date(),
+        logoPath: findBildmarkePath()
+      });
+
+      const stamp = generatedStamp();
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=riker-komplettbericht-${stamp}.pdf`);
+      res.send(buffer);
+    } catch (err) {
+      console.error('Complete report export error:', err);
+      res.status(500).json({ error: err.message || 'Export failed' });
+    }
+  });
+
   // Admin: Export price list as Word (.docx) — title "Speisen und Getränke" with Bildmarke watermark
   app.get('/api/admin/export-pricelist', async (req, res) => {
     try {
@@ -911,20 +1025,13 @@ async function start() {
         groups.get(cat).push(it);
       }
 
-      // Resolve Bildmarke for the watermark (runtime: server/public, dev fallback: client/public)
-      let logoBuffer = null;
-      const logoCandidates = [
-        path.join(__dirname, 'public', 'bildmarke.png'),
-        path.join(__dirname, '..', 'client', 'public', 'bildmarke.png'),
-        path.join(__dirname, '..', 'client', 'src', 'bildmarke.png')
-      ];
-      for (const p of logoCandidates) {
-        try { if (fs.existsSync(p)) { logoBuffer = fs.readFileSync(p); break; } } catch {}
-      }
+      const logoBuffer = loadBildmarke();
 
-      // Build a centered, behind-text watermark image for the page header (repeats on every page)
+      // Build a centered, behind-text watermark that keeps the logo's native aspect ratio
       let header;
       if (logoBuffer) {
+        const natural = pngSize(logoBuffer) || { width: 420, height: 420 };
+        const transformation = fitImage(natural, 520, 520);
         header = new Header({
           children: [
             new Paragraph({
@@ -932,7 +1039,7 @@ async function start() {
                 new ImageRun({
                   type: 'png',
                   data: logoBuffer,
-                  transformation: { width: 420, height: 420 },
+                  transformation,
                   floating: {
                     horizontalPosition: { relative: HorizontalPositionRelativeFrom.PAGE, align: HorizontalPositionAlign.CENTER },
                     verticalPosition: { relative: VerticalPositionRelativeFrom.PAGE, align: VerticalPositionAlign.CENTER },
@@ -950,14 +1057,14 @@ async function start() {
       children.push(new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { after: 400 },
-        children: [new TextRun({ text: 'Speisen und Getränke', bold: true, size: 56 })]
+        children: [new TextRun({ text: 'Speisen und Getränke', bold: true, size: 56, font: PRICE_LIST_FONT })]
       }));
 
       for (const [cat, list] of groups) {
         children.push(new Paragraph({
           spacing: { before: 280, after: 120 },
           heading: HeadingLevel.HEADING_1,
-          children: [new TextRun({ text: cat, bold: true, size: 32 })]
+          children: [new TextRun({ text: cat, bold: true, size: 32, font: PRICE_LIST_FONT })]
         }));
         for (const it of list) {
           const price = (Number(it.price) || 0).toFixed(2).replace('.', ',') + ' €';
@@ -965,14 +1072,24 @@ async function start() {
             tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX, leader: LeaderType.DOT }],
             spacing: { after: 80 },
             children: [
-              new TextRun({ text: it.name, size: 24 }),
-              new TextRun({ text: `\t${price}`, size: 24, bold: true })
+              new TextRun({ text: it.name, size: 24, font: PRICE_LIST_FONT }),
+              new TextRun({ text: `\t${price}`, size: 24, bold: true, font: PRICE_LIST_FONT })
             ]
           }));
         }
       }
 
       const doc = new Document({
+        styles: {
+          default: {
+            document: {
+              run: { font: PRICE_LIST_FONT, size: 24 }
+            },
+            heading1: {
+              run: { font: PRICE_LIST_FONT, bold: true, size: 32 }
+            }
+          }
+        },
         sections: [{
           headers: header ? { default: header } : undefined,
           children

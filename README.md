@@ -156,6 +156,7 @@ Hinweis: Im Container liefert Express das gebaute Frontend aus `server/public` a
 - GET `/api/admin/export-products?mode=template|current` — Excel als Vorlage oder mit aktuellen Produkten herunterladen
 - GET `/api/admin/export-template` — Legacy-Endpunkt für Vorlagen-Download
 - GET `/api/admin/export-pricelist` — Preisliste „Speisen und Getränke" als Word (.docx) mit Bildmarke als Hintergrund
+- GET `/api/admin/export-report` — Komplettbericht als PDF (Übersicht, Bestellungen, verkaufte Artikel, Produktkatalog)
 - POST `/api/admin/import-products` — Excel hochladen (multipart/form-data, field: `file`)
 
 #### Admin Reports & Einstellungen

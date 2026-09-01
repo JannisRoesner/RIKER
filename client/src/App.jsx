@@ -385,7 +385,7 @@ function StaffApp() {
               </div>
             )}
             <button
-              className="hamburger"
+              className="btn btn-ghost btn-sm hamburger"
               aria-label="Menü"
               aria-expanded={navOpen}
               onClick={() => setNavOpen(o => !o)}
@@ -775,6 +775,7 @@ function Admin({ onRefreshMenu }) {
   const [showExportDialog, setShowExportDialog] = useState(false)
   const [guestEnabled, setGuestEnabled] = useState(false)
   const [savingGuest, setSavingGuest] = useState(false)
+  const [reportBusy, setReportBusy] = useState(false)
 
   useEffect(() => { load(); }, [])
   function load() {
@@ -830,59 +831,25 @@ function Admin({ onRefreshMenu }) {
     }
   }
 
-  function tStatus(s) { return s==='paid' ? 'bezahlt' : s==='complete' ? 'fertig' : 'offen' }
-  function fmtEuro(n) { return (Number(n)||0).toFixed(2) + '€' }
-
-  async function openRevenueWindow() {
-    const data = await (await fetch('api/admin/reports/summary')).json()
-    const w = window.open('', '_blank')
-    if (!w) return
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Umsatz (Gesamt)</title>
-      <style>body{font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;padding:16px;color:#0b0f14} .big{font-size:28px;font-weight:800} .muted{color:#555}</style>
-      </head><body>
-      <h2>Umsatz (bezahlt) — Gesamt</h2>
-      <div class="big">${fmtEuro(data.revenuePaid||0)}</div>
-      <div class="muted">Basis: alle bezahlten Positionen in der Datenbank</div>
-      </body></html>`)
-    w.document.close()
-  }
-
-  async function openRevenueAllWindow() {
-    const data = await (await fetch('api/admin/reports/summary-all')).json()
-    const w = window.open('', '_blank')
-    if (!w) return
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Umsatz (Alle Positionen)</title>
-      <style>body{font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;padding:16px;color:#0b0f14} .big{font-size:28px;font-weight:800} .muted{color:#555}</style>
-      </head><body>
-      <h2>Umsatz (alle Positionen) — Gesamt</h2>
-      <div class="big">${fmtEuro(data.revenueAll||0)}</div>
-      <div class="muted">Basis: alle Positionen (bezahlt und nicht bezahlt)</div>
-      </body></html>`)
-    w.document.close()
-  }
-
-  async function openOrdersWindow() {
-    const rows = await (await fetch('api/admin/reports/orders')).json()
-    const w = window.open('', '_blank'); if (!w) return
-    const head = `<!doctype html><html><head><meta charset="utf-8"><title>Bestellungen (Gesamt)</title>
-      <style>body{font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;padding:16px;color:#0b0f14}
-      table{border-collapse:collapse;width:100%} th,td{padding:8px 10px;border-bottom:1px solid #eee;text-align:left} thead th{border-bottom:2px solid #ddd;color:#444}
-      </style></head><body>`
-    const rowsHtml = rows.map(o => `<tr><td>#${o.id}</td><td>${o.table_number||''}</td><td>${tStatus(o.status)}</td><td>${fmtEuro(o.total||0)}</td><td>${(o.created_at||'').replace('T',' ').slice(0,19)}</td></tr>`).join('')
-    const body = `<h2>Bestellungen — Gesamt</h2><table><thead><tr><th>#</th><th>Tisch</th><th>Status</th><th>Summe</th><th>Zeit</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
-    w.document.write(head + body + '</body></html>'); w.document.close()
-  }
-
-  async function openItemsWindow() {
-    const rows = await (await fetch('api/admin/reports/items')).json()
-    const w = window.open('', '_blank'); if (!w) return
-    const head = `<!doctype html><html><head><meta charset="utf-8"><title>Artikel (Gesamt)</title>
-      <style>body{font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;padding:16px;color:#0b0f14}
-      table{border-collapse:collapse;width:100%} th,td{padding:8px 10px;border-bottom:1px solid #eee;text-align:left} thead th{border-bottom:2px solid #ddd;color:#444}
-      </style></head><body>`
-    const rowsHtml = rows.map(r => `<tr><td>${r.name}</td><td>${r.soldQty}</td><td>${r.paidQty}</td><td>${fmtEuro(r.revenuePaid||0)}</td></tr>`).join('')
-    const body = `<h2>Verkaufte Artikel — Gesamt</h2><table><thead><tr><th>Artikel</th><th>Menge</th><th>Bezahlt (Menge)</th><th>Umsatz (bezahlt)</th></tr></thead><tbody>${rowsHtml}</tbody></table>`
-    w.document.write(head + body + '</body></html>'); w.document.close()
+  async function downloadCompleteReport() {
+    setReportBusy(true)
+    try {
+      const res = await fetch('/api/admin/export-report')
+      if (!res.ok) throw new Error('Download fehlgeschlagen')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'riker-komplettbericht.pdf'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      alert('Fehler beim Download: ' + err.message)
+    } finally {
+      setReportBusy(false)
+    }
   }
 
   async function addCategory() {
@@ -952,13 +919,12 @@ function Admin({ onRefreshMenu }) {
       <AdminDashboard />
 
       <div className="panel span-2">
-        <h3>Detailberichte &amp; Verwaltung</h3>
+        <h3>Berichte &amp; Verwaltung</h3>
         <div className="form-row" style={{flexWrap:'wrap'}}>
           <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
-            <button className="btn btn-secondary" onClick={openRevenueWindow}>Umsatz (bezahlt) anzeigen</button>
-            <button className="btn btn-secondary" onClick={openOrdersWindow}>Bestellungen öffnen</button>
-            <button className="btn btn-secondary" onClick={openRevenueAllWindow}>Umsatz gesamt (inkl. unbezahlte)</button>
-            <button className="btn btn-secondary" onClick={openItemsWindow}>Verkaufte Artikel öffnen</button>
+            <button className="btn btn-primary" onClick={downloadCompleteReport} disabled={reportBusy}>
+              {reportBusy ? 'Bericht wird erstellt…' : 'Komplettbericht (.pdf) herunterladen'}
+            </button>
             <button className="btn btn-secondary" onClick={() => setShowPasswordDialog(true)}>Passwort ändern</button>
             <button className="btn btn-danger" onClick={()=>setShowReset(true)}>Kasse auf Null setzen</button>
           </div>

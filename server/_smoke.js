@@ -48,6 +48,10 @@ async function main() {
   const docxBuf = Buffer.from(await r.arrayBuffer());
   check('GET export-pricelist .docx valid zip', r.status === 200 && docxBuf.slice(0, 2).toString() === 'PK', `bytes=${docxBuf.length}`);
 
+  r = await fetch(base + '/api/admin/export-report', { headers: { Cookie: cookie } });
+  const pdfBuf = Buffer.from(await r.arrayBuffer());
+  check('GET export-report PDF', r.status === 200 && pdfBuf.slice(0, 4).toString() === '%PDF', `bytes=${pdfBuf.length}`);
+
   // --- Products Excel export -> import round-trip ---
   // Robust to the (pre-existing) mode=current quirk: we re-import the server's own
   // export buffer twice and assert the import is idempotent (no duplicate products).
