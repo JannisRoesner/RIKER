@@ -13,6 +13,7 @@ const {
   HorizontalPositionAlign, VerticalPositionAlign, HorizontalPositionRelativeFrom, VerticalPositionRelativeFrom
 } = require('docx');
 const { buildCompleteReport } = require('./reportPdf');
+const { buildSettlementSlip } = require('./settlementSlip');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.sqlite');
@@ -520,6 +521,54 @@ async function start() {
     res.json({ ok: true });
   });
 
+  function mapSettlementRow(row) {
+    return {
+      id: row.id,
+      kind: 'settlement',
+      status: row.status,
+      text: row.text,
+      created_at: row.created_at
+    };
+  }
+
+  // Public poll for Spock2 — same pattern as GET /api/orders?status=open
+  app.get('/api/settlements', async (req, res) => {
+    try {
+      const { status } = req.query;
+      const rows = status
+        ? await db.all(
+          'SELECT id, status, text, created_at FROM settlement_slips WHERE status = ? ORDER BY id ASC',
+          status
+        )
+        : await db.all(
+          'SELECT id, status, text, created_at FROM settlement_slips ORDER BY id DESC'
+        );
+      res.json(rows.map(mapSettlementRow));
+    } catch (err) {
+      console.error('GET /api/settlements', err);
+      res.status(500).json({ error: 'internal' });
+    }
+  });
+
+  app.post('/api/settlements/:id/complete', async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'invalid id' });
+    }
+    try {
+      const row = await db.get('SELECT id FROM settlement_slips WHERE id = ?', id);
+      if (!row) return res.status(404).json({ error: 'not found' });
+      await db.run(
+        `UPDATE settlement_slips SET status = ?, completed_at = datetime('now') WHERE id = ?`,
+        ['complete', id]
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('POST /api/settlements/:id/complete', err);
+      res.status(500).json({ error: 'internal' });
+    }
+  });
+
   // Pay selected order_items for an order (body: { itemIds: [1,2,3] })
   app.post('/api/orders/:id/pay-items', async (req, res) => {
     const orderId = req.params.id;
@@ -835,8 +884,9 @@ async function start() {
     try {
       // Delete all orders (order_items are ON DELETE CASCADE)
       await db.run('DELETE FROM orders');
+      await db.run('DELETE FROM settlement_slips');
       // Try to reset autoincrement counters (optional)
-      try { await db.run("DELETE FROM sqlite_sequence WHERE name IN ('orders','order_items')"); } catch {}
+      try { await db.run("DELETE FROM sqlite_sequence WHERE name IN ('orders','order_items','settlement_slips')"); } catch {}
       // Remove printed tickets
       try {
         if (fs.existsSync(PRINTS_DIR)) {
@@ -1011,6 +1061,56 @@ async function start() {
     } catch (err) {
       console.error('Complete report export error:', err);
       res.status(500).json({ error: err.message || 'Export failed' });
+    }
+  });
+
+  // Admin: Thermal settlement slip for Spock2 (same numbers as the PDF, compact receipt)
+  app.post('/api/admin/prepare-settlement', async (req, res) => {
+    try {
+      const [paidRow, allRow, orders, items] = await Promise.all([
+        db.get(`SELECT COALESCE(SUM(oi.qty * i.price), 0) as revenuePaid
+                FROM order_items oi JOIN orders o ON oi.order_id = o.id JOIN items i ON oi.item_id = i.id
+                WHERE COALESCE(oi.paid,0) = 1`),
+        db.get(`SELECT COALESCE(SUM(oi.qty * i.price), 0) as revenueAll
+                FROM order_items oi JOIN orders o ON oi.order_id = o.id JOIN items i ON oi.item_id = i.id`),
+        db.all(`SELECT id, status FROM orders`),
+        db.all(`SELECT i.name, c.name as category,
+                COALESCE(SUM(oi.qty),0) as soldQty,
+                COALESCE(SUM(oi.qty * i.price),0) as revenueAll,
+                COALESCE(SUM(CASE WHEN COALESCE(oi.paid,0)=1 THEN (oi.qty * i.price) ELSE 0 END),0) as revenuePaid
+         FROM order_items oi
+         JOIN orders o ON oi.order_id = o.id
+         JOIN items i ON i.id = oi.item_id
+         LEFT JOIN categories c ON i.category_id = c.id
+         GROUP BY i.id, i.name, c.name
+         ORDER BY soldQty DESC`)
+      ]);
+
+      const generatedAt = new Date();
+      const text = buildSettlementSlip({
+        summaryPaid: paidRow?.revenuePaid || 0,
+        summaryAll: allRow?.revenueAll || 0,
+        orders,
+        items,
+        generatedAt
+      });
+      const filename = `order-abrechnung-${Date.now()}.txt`;
+      fs.writeFileSync(path.join(PRINTS_DIR, filename), text);
+      const inserted = await db.run(
+        `INSERT INTO settlement_slips (status, text, filename, created_at)
+         VALUES (?, ?, ?, datetime('now'))`,
+        ['open', text, filename]
+      );
+      res.json({
+        ok: true,
+        id: inserted.lastID,
+        status: 'open',
+        filename,
+        bytes: Buffer.byteLength(text)
+      });
+    } catch (err) {
+      console.error('Prepare settlement error:', err);
+      res.status(500).json({ error: err.message || 'Abrechnung fehlgeschlagen' });
     }
   });
 

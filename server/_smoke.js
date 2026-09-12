@@ -52,6 +52,26 @@ async function main() {
   const pdfBuf = Buffer.from(await r.arrayBuffer());
   check('GET export-report PDF', r.status === 200 && pdfBuf.slice(0, 4).toString() === '%PDF', `bytes=${pdfBuf.length}`);
 
+  r = await fetch(base + '/api/admin/prepare-settlement', { method: 'POST', headers: { Cookie: cookie } });
+  const slip = await r.json();
+  check('POST prepare-settlement creates slip', r.status === 200 && Number.isInteger(slip.id) && String(slip.filename || '').startsWith('order-abrechnung-'), `id=${slip.id} file=${slip.filename}`);
+
+  r = await fetch(base + '/api/settlements?status=open');
+  const openSlips = await r.json();
+  const queued = Array.isArray(openSlips) && openSlips.find(s => s.id === slip.id);
+  check('GET /api/settlements?status=open returns new slip', !!queued && queued.kind === 'settlement' && typeof queued.text === 'string' && queued.text.includes('ABRECHNUNG'));
+
+  r = await fetch(base + `/api/settlements/${slip.id}/complete`, { method: 'POST' });
+  check('POST /api/settlements/:id/complete', r.status === 200 && (await r.json()).ok === true);
+
+  r = await fetch(base + '/api/settlements?status=open');
+  const openAfter = await r.json();
+  check('completed slip leaves the open list', Array.isArray(openAfter) && !openAfter.some(s => s.id === slip.id));
+
+  const slipDb = await open({ filename: DB_FILE, driver: sqlite3.Database });
+  await slipDb.run('DELETE FROM settlement_slips WHERE id = ?', slip.id);
+  await slipDb.close();
+
   // --- Products Excel export -> import round-trip ---
   // Robust to the (pre-existing) mode=current quirk: we re-import the server's own
   // export buffer twice and assert the import is idempotent (no duplicate products).

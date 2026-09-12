@@ -759,4 +759,4 @@ function buildCompleteReport({ summaryPaid, summaryAll, orders, items, products,
   });
 }
 
-module.exports = { buildCompleteReport };
+module.exports = { buildCompleteReport, summarizeByKind, classifyKind };

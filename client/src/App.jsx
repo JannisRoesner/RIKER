@@ -776,6 +776,7 @@ function Admin({ onRefreshMenu }) {
   const [guestEnabled, setGuestEnabled] = useState(false)
   const [savingGuest, setSavingGuest] = useState(false)
   const [reportBusy, setReportBusy] = useState(false)
+  const [settlementBusy, setSettlementBusy] = useState(false)
 
   useEffect(() => { load(); }, [])
   function load() {
@@ -852,6 +853,20 @@ function Admin({ onRefreshMenu }) {
     }
   }
 
+  async function prepareSettlement() {
+    setSettlementBusy(true)
+    try {
+      const res = await fetch('/api/admin/prepare-settlement', { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Abrechnung fehlgeschlagen')
+      alert(`Abrechnungszettel #${data.id} ist bereit — Spock2 holt ihn über die API.`)
+    } catch (err) {
+      alert('Fehler: ' + err.message)
+    } finally {
+      setSettlementBusy(false)
+    }
+  }
+
   async function addCategory() {
     if (!newCat) return alert('Name required')
     await fetch('api/admin/categories', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: newCat }) })
@@ -924,6 +939,9 @@ function Admin({ onRefreshMenu }) {
           <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
             <button className="btn btn-primary" onClick={downloadCompleteReport} disabled={reportBusy}>
               {reportBusy ? 'Bericht wird erstellt…' : 'Komplettbericht (.pdf) herunterladen'}
+            </button>
+            <button className="btn btn-secondary" onClick={prepareSettlement} disabled={settlementBusy}>
+              {settlementBusy ? 'Zettel wird erstellt…' : 'Abrechnung vorbereiten'}
             </button>
             <button className="btn btn-secondary" onClick={() => setShowPasswordDialog(true)}>Passwort ändern</button>
             <button className="btn btn-danger" onClick={()=>setShowReset(true)}>Kasse auf Null setzen</button>

@@ -44,3 +44,12 @@ CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,
   value TEXT
 );
+
+CREATE TABLE IF NOT EXISTS settlement_slips (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  status TEXT NOT NULL DEFAULT 'open',
+  text TEXT NOT NULL,
+  filename TEXT,
+  created_at TEXT NOT NULL,
+  completed_at TEXT
+);

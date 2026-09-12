@@ -133,6 +133,8 @@ Hinweis: Im Container liefert Express das gebaute Frontend aus `server/public` a
 - GET `/api/orders?status=open|paid|complete` — Bestellungen filtern nach Status
 - POST `/api/orders/:id/pay` — Bestellung als bezahlt markieren
 - POST `/api/orders/:id/complete` — Bestellung als erledigt markieren
+- GET `/api/settlements?status=open|complete` — Abrechnungszettel für Spock2 (öffentlicher Poll, analog zu offenen Bestellungen)
+- POST `/api/settlements/:id/complete` — Zettel als gedruckt/erledigt markieren
 
 #### Tisch-Service (Bezahlen)
 - GET `/api/tables` — verfügbare Tische (öffentlich)
@@ -157,6 +159,7 @@ Hinweis: Im Container liefert Express das gebaute Frontend aus `server/public` a
 - GET `/api/admin/export-template` — Legacy-Endpunkt für Vorlagen-Download
 - GET `/api/admin/export-pricelist` — Preisliste „Speisen und Getränke" als Word (.docx) mit Bildmarke als Hintergrund
 - GET `/api/admin/export-report` — Komplettbericht als PDF (Deckblatt, Inhaltsverzeichnis, Übersicht, Speisen/Getränke, Bestellungen, verkaufte Artikel, Produktkatalog)
+- POST `/api/admin/prepare-settlement` — Abrechnungszettel erzeugen (`settlement_slips`, Status `open`) und zusätzlich nach `prints/order-abrechnung-<ts>.txt` schreiben
 - POST `/api/admin/import-products` — Excel hochladen (multipart/form-data, field: `file`)
 
 #### Admin Reports & Einstellungen
