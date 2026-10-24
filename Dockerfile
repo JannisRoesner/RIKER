@@ -1,4 +1,4 @@
-FROM node:22.23.4-slim AS build
+FROM node:24.22.1-slim AS build
 WORKDIR /app
 
 # Copy entire server and client directories so build can access source files
@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt
 # Install server deps.
 # Build sqlite3 from source so its native binding links against this image's
 # glibc. The published prebuilt binaries require GLIBC_2.38, which the
-# node:22.23.4-slim (Debian Bookworm, glibc 2.36) runtime does not provide.
+# node:24.22.1-slim (Debian Bookworm, glibc 2.36) runtime does not provide.
 WORKDIR /app/server
 RUN npm install --production --build-from-source=sqlite3
 
@@ -19,7 +19,7 @@ WORKDIR /app/client
 RUN npm install
 RUN npm run build
 
-FROM node:22.23.4-slim
+FROM node:24.22.1-slim
 WORKDIR /app
 
 # Copy server
